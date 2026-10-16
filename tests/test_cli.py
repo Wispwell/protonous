@@ -1,7 +1,6 @@
 from protonous.cli import main
-from protonous.context import Message, Role, ToolCall, Usage
+from protonous.context import Message, Role, Step, ToolCall, Usage
 from protonous.errors import ProviderError
-from protonous.loop import Step
 from protonous.trace import Session
 
 

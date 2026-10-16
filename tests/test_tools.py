@@ -275,3 +275,16 @@ async def test_toolbox_works_as_the_registry():
 
     msg = await execute(by_name(box), _call("double", '{"n": 21}'))
     assert msg.content == "42"
+
+
+async def test_run_tools_runs_every_call_in_order():
+    from protonous.context import Message
+    from protonous.tools import run_tools
+
+    reply = Message(
+        role=Role.ASSISTANT, content=None,
+        tool_calls=(_call("add", '{"a": 1, "b": 2}', "c1"), _call("add", '{"a": 3, "b": 4}', "c2")),
+    )
+    results = await run_tools([ADD], reply)
+    assert [(r.tool_call_id, r.content) for r in results] == [("c1", "3"), ("c2", "7")]
+    assert await run_tools([ADD], Message(role=Role.ASSISTANT, content="no tools")) == ()

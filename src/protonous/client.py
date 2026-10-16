@@ -10,7 +10,7 @@ MessageChunk. All provider-shaped mapping lives in normalizers. Folding a stream
 the caller's job (via MessageChunk `+`); `collect()` is the convenience for when
 per-chunk access isn't needed.
 """
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from typing import Any, Literal, cast
 
 import openai
@@ -68,14 +68,12 @@ class OpenrouterConfig(BaseModel):
         return params
 
 
-def _messages(
-    context: ContextWindow, replay_all_reasoning: bool
-) -> list[ChatCompletionMessageParam]:
+def _messages(context: ContextWindow) -> list[ChatCompletionMessageParam]:
     # Our messages carry OpenRouter extensions (reasoning, reasoning_details) that the
     # SDK's TypedDicts don't model; the SDK sends them through unchanged.
     return cast(
         "list[ChatCompletionMessageParam]",
-        normalize_in(context, replay_all_reasoning=replay_all_reasoning),
+        normalize_in(context),
     )
 
 
@@ -130,25 +128,19 @@ class OpenrouterClient:
         context: ContextWindow,
         config: OpenrouterConfig,
         tools: Sequence[ToolSpec] | None = None,
-        *,
-        replay_all_reasoning: bool = True,
     ) -> Message:
         """The whole response as one Message (a collected stream)."""
-        return await collect(
-            self.stream(context, config, tools, replay_all_reasoning=replay_all_reasoning)
-        )
+        return await collect(self.stream(context, config, tools))
 
     async def stream(
         self,
         context: ContextWindow,
         config: OpenrouterConfig,
         tools: Sequence[ToolSpec] | None = None,
-        *,
-        replay_all_reasoning: bool = True,
-    ) -> AsyncIterator[MessageChunk]:
+    ) -> AsyncGenerator[MessageChunk]:
         try:
             response = await self._client.chat.completions.create(
-                messages=_messages(context, replay_all_reasoning),
+                messages=_messages(context),
                 stream=True,
                 stream_options={"include_usage": True},
                 **_request(config, tools),

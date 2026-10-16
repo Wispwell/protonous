@@ -137,16 +137,3 @@ def test_normalize_chunk_usage_only_tail():
     c = normalize_chunk(chunk)
     assert c.content is None and c.role is None
     assert c.usage.completion_tokens == 2
-
-
-def test_normalize_in_replays_only_latest_reasoning_when_asked():
-    window = _window(
-        Message(role=Role.ASSISTANT, content="1", reasoning="old"),
-        Message(role=Role.USER, content="u"),
-        Message(role=Role.ASSISTANT, content="2", reasoning="new"),
-        Message(role=Role.USER, content="u2"),
-    )
-    every = normalize_in(window)
-    assert every[0]["reasoning"] == "old" and every[2]["reasoning"] == "new"
-    latest = normalize_in(window, replay_all_reasoning=False)
-    assert "reasoning" not in latest[0] and latest[2]["reasoning"] == "new"

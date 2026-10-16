@@ -1,10 +1,12 @@
-"""A streaming stand-in for OpenrouterClient.
+"""A streaming stand-in for OpenrouterClient, and the reference agent loop.
 
 Each scripted reply is streamed the way providers do it: in fragments, with tool
 calls split into a header chunk and argument slices, so every test that runs the
 loop also exercises chunk merging.
 """
+from protonous.client import OpenrouterConfig
 from protonous.context import Message, MessageChunk, Role, ToolCall
+from protonous.model import Model
 
 
 def _halves(text):
@@ -44,13 +46,19 @@ class ScriptedClient:
     def __init__(self, *replies):
         self.replies = list(replies)
         self.seen = []  # (message contents in the window, tool names offered)
-        self.replay_flags = []
+        self.closed = 0  # streams closed before their last chunk was read
 
-    async def stream(self, window, config, tools=None, *, replay_all_reasoning=True):
-        self.replay_flags.append(replay_all_reasoning)
+    async def stream(self, window, config, tools=None):
         self.seen.append(([m.content for m in window.view()], [t.name for t in tools or []]))
-        for chunk in chunks_of(self.replies.pop(0)):
-            yield chunk
+        chunks = chunks_of(self.replies.pop(0))
+        sent = 0
+        try:
+            for chunk in chunks:
+                yield chunk
+                sent += 1
+        finally:
+            if sent < len(chunks):
+                self.closed += 1
 
 
 class FailingClient:
@@ -59,6 +67,33 @@ class FailingClient:
     def __init__(self, exc):
         self.exc = exc
 
-    async def stream(self, window, config, tools=None, *, replay_all_reasoning=True):
+    async def stream(self, window, config, tools=None):
         raise self.exc
         yield  # makes this an async generator
+
+
+def model_for(client):
+    return Model(client, OpenrouterConfig(model="x"))
+
+
+async def agent(model, window, history, tools=(), *, max_steps=10, tracer=None):
+    """The loop the docs show: step until the model answers without tools."""
+    steps = []
+
+    async def _loop():
+        for _ in range(max_steps):
+            step = await model.step(window, tools)
+            steps.append(step)
+            if tracer is not None:
+                tracer.step(step)
+            history.extend(step.messages)
+            if not step.tool_results:
+                return "done"
+        return "max_steps"
+
+    if tracer is None:
+        return steps, await _loop()
+    with tracer.recording():
+        stop = await _loop()
+        tracer.end(stop)
+    return steps, stop

@@ -1,11 +1,14 @@
 # Sessions and traces
 
-A session is a directory of runs that share initial data. A run is one `run()` call.
+A session is a directory of runs that share initial data. A run is one pass of your
+agent loop, recorded by a `Tracer`.
 
 ```python
 session = Session.create("sessions/exp-1", {"config": config, "tools": [t.spec for t in tools]})
 tracer = session.tracer(meta={"condition": "a", "seed": 3})
-await run(..., tracer=tracer)
+with tracer.recording():
+    ...                                    # tracer.step(step) for every step
+    tracer.end("done")                     # any stop reason your loop uses
 
 session = Session.open("sessions/exp-1")   # later: add more runs
 ```
@@ -36,10 +39,10 @@ A run file:
 ```
 {"type": "run", "name": "run-0001", "meta": {...}}
 {"type": "step", "index": 0, "step": {...}}            one line per Step
-{"type": "end", "stop_reason": "done", "steps": 3}     run() returned
+{"type": "end", "stop_reason": "done", "steps": 3}     tracer.end("done")
 ```
 
-or, if `run()` raised, an error line instead of the end line:
+or, if something raised inside `tracer.recording()`, an error line instead:
 
 ```
 {"type": "error", "error": "ProviderError", "message": "HTTP 400: ..."}
@@ -49,7 +52,7 @@ or, if `run()` raised, an error line instead of the end line:
 traceback: `{"run", "time", "error", "message", "traceback"}`.
 
 Every line is appended and the file closed immediately, so a crash loses nothing.
-Each step is written before `update` sees it. A run file with neither an end nor an
+Each step is on disk as soon as `tracer.step` returns. A run file with neither an end nor an
 error line belongs to a process that was killed outright.
 
 ## Loading
@@ -58,7 +61,7 @@ error line belongs to a process that was killed outright.
 s = load_session("sessions/exp-1")
 s.initial                      # dict
 s.runs["run-0001"].steps       # list[Step], exactly as recorded
-s.runs["run-0001"].stop_reason # "done" | "max_steps" | None (didn't finish)
+s.runs["run-0001"].stop_reason # what tracer.end got, or None (didn't finish)
 s.runs["run-0001"].error       # RunError(error, message) | None
 s.runs["run-0001"].usage       # Usage summed over the run's steps
 s.usage                        # Usage summed over the whole session

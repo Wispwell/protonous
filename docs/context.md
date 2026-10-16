@@ -51,7 +51,7 @@ window.view()   # the layers' views, concatenated in order
 ```
 
 The window is only an ordered list of layers. Which layer a new message goes into is
-decided by the loop's `update` callback, not by the window (see [loop](loop.md)).
+decided by your agent loop, not by the window (see [model](model.md)).
 
 ## Reasoning
 
@@ -59,8 +59,8 @@ Reasoning arrives on the assistant `Message` (`reasoning`, `reasoning_details`) 
 travels with it. When the window is sent back, each assistant message carries its
 `reasoning_details` back out, unmodified and in order, which is how OpenRouter keeps
 reasoning across tool-calling turns; if a provider gave only a raw `reasoning`
-string, that is sent instead. `run(..., replay_all_reasoning=False)` sends reasoning
-only on the latest assistant message.
+string, that is sent instead. Reasoning goes back exactly as it sits in the window:
+to send less, change what the window holds.
 
 Stored messages are never changed, so traces always keep all reasoning. Models that
 return encrypted reasoning round-trip fine but can't be read.
@@ -81,7 +81,7 @@ provider reported in the stream's final chunk:
 
 A field the provider didn't report stays `None`. `Usage` objects add up field by
 field with `+`, so totals are `sum(usages, Usage())`; `Step.usage`,
-`RunResult.usage`, and the loaded `Trace.usage` / `SessionTrace.usage` do that for
+and the loaded `Trace.usage` / `SessionTrace.usage` do that for
 you.
 
 In a loop the window is re-sent every step, so input grows with the run:

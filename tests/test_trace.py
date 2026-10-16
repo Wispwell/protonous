@@ -2,11 +2,11 @@ import asyncio
 import json
 
 import pytest
-from fakes import FailingClient, ScriptedClient
+from fakes import FailingClient, ScriptedClient, agent, model_for
 from pydantic import BaseModel
 
 from protonous.client import OpenrouterConfig
-from protonous.context import Message, ReasoningDetail, Role, ToolCall
+from protonous.context import Message, ReasoningDetail, Role, Step, ToolCall
 from protonous.errors import (
     ConfigurationError,
     NotASessionError,
@@ -15,7 +15,6 @@ from protonous.errors import (
     SessionExistsError,
 )
 from protonous.layers import ContextWindow, SlidingWindowLayer, StaticLayer
-from protonous.loop import RunResult, Step, append_to, run
 from protonous.tools import Tool
 from protonous.trace import Session, Tracer, load_session, load_trace
 
@@ -65,9 +64,8 @@ async def test_session_run_round_trip(tmp_path):
         tmp_path / "s", {"config": CONFIG, "window": window.view(), "tools": [ADD.spec]}
     )
     tracer = session.tracer(meta={"condition": "a", "seed": 3})
-    result = await run(
-        ScriptedClient(_call_reply(), _done()), window, CONFIG, [ADD],
-        update=append_to(history), max_steps=5, tracer=tracer,
+    steps, _ = await agent(
+        model_for(ScriptedClient(_call_reply(), _done())), window, history, [ADD], tracer=tracer
     )
 
     lines = [json.loads(line) for line in (tmp_path / "s" / "run-0001.jsonl").read_text().splitlines()]
@@ -79,7 +77,7 @@ async def test_session_run_round_trip(tmp_path):
     assert loaded.initial["window"][0]["content"] == "sys"
     trace = loaded.runs["run-0001"]
     assert trace.meta == {"condition": "a", "seed": 3}
-    assert trace.steps == list(result.steps)  # lossless: reasoning, tool calls, error extras
+    assert trace.steps == steps  # lossless: reasoning, tool calls, error extras
     assert trace.steps[0].tool_results[1].extras == {"error": True}
     assert trace.stop_reason == "done"
 
@@ -119,9 +117,9 @@ async def test_parallel_runs_get_distinct_files(tmp_path):
 
     async def _one(i):
         window, history = _setup()
-        await run(
-            ScriptedClient(_done(str(i))), window, CONFIG,
-            update=append_to(history), max_steps=1, tracer=session.tracer(meta={"i": i}),
+        await agent(
+            model_for(ScriptedClient(_done(str(i)))), window, history,
+            tracer=session.tracer(meta={"i": i}),
         )
 
     await asyncio.gather(*(_one(i) for i in range(5)))
@@ -133,32 +131,30 @@ async def test_parallel_runs_get_distinct_files(tmp_path):
 async def test_max_steps_is_recorded(tmp_path):
     window, history = _setup()
     tracer = Session.create(tmp_path / "s", {}).tracer()
-    await run(
-        ScriptedClient(_call_reply()), window, CONFIG, [ADD],
-        update=append_to(history), max_steps=1, tracer=tracer,
+    await agent(
+        model_for(ScriptedClient(_call_reply())), window, history, [ADD], max_steps=1,
+        tracer=tracer,
     )
     assert load_trace(tracer.path).stop_reason == "max_steps"
 
 
-async def test_step_is_recorded_even_if_update_raises(tmp_path):
+async def test_recorded_steps_survive_a_later_failure(tmp_path):
     window, _ = _setup()
     tracer = Session.create(tmp_path / "s", {}).tracer()
-
-    def _broken(w, step):
-        raise RuntimeError("update failed")
-
-    with pytest.raises(RuntimeError):
-        await run(ScriptedClient(_done()), window, CONFIG, update=_broken, max_steps=1, tracer=tracer)
+    model = model_for(ScriptedClient(_done()))
+    with pytest.raises(RuntimeError), tracer.recording():
+        tracer.step(await model.step(window))
+        raise RuntimeError("the caller's own code failed")
     trace = load_trace(tracer.path)
-    assert len(trace.steps) == 1 and trace.stop_reason is None  # no end line: unfinished
+    assert len(trace.steps) == 1 and trace.stop_reason is None
+    assert trace.error is not None and trace.error.message == "the caller's own code failed"
 
 
 def test_standalone_tracer_without_session(tmp_path):
     tracer = Tracer(tmp_path / "solo.jsonl", {"note": "manual"})
     step = Step(assistant=_done("hi"))
     tracer.step(step)
-    window, _ = _setup()
-    tracer.end(RunResult(window=window, steps=(step,), stop_reason="done"))
+    tracer.end("done")
     trace = load_trace(tmp_path / "solo.jsonl")
     assert trace.name == "solo" and trace.meta == {"note": "manual"} and trace.steps == [step]
 
@@ -183,10 +179,7 @@ async def test_run_failure_is_recorded_and_reraised(tmp_path, exc, name):
     session = Session.create(tmp_path / "s", {})
     tracer = session.tracer(meta={"m": 1})
     with pytest.raises(type(exc)) as info:
-        await run(
-            FailingClient(exc), window, CONFIG, update=append_to(history), max_steps=3,
-            tracer=tracer,
-        )
+        await agent(model_for(FailingClient(exc)), window, history, tracer=tracer)
     assert info.value is exc  # re-raised unchanged
 
     loaded = load_session(tmp_path / "s")
@@ -204,9 +197,9 @@ async def test_errors_from_several_runs_collect_in_one_file(tmp_path):
     for _ in range(2):
         window, history = _setup()
         with pytest.raises(ProviderError):
-            await run(
-                FailingClient(ProviderError("down")), window, CONFIG,
-                update=append_to(history), max_steps=1, tracer=session.tracer(),
+            await agent(
+                model_for(FailingClient(ProviderError("down"))), window, history,
+                tracer=session.tracer(),
             )
     assert [e.run for e in load_session(tmp_path / "s").errors] == ["run-0001", "run-0002"]
 
@@ -240,12 +233,10 @@ async def test_usage_is_traced_per_step_and_summed(tmp_path):
 
     window, history = _setup()
     session = Session.create(tmp_path / "s", {})
-    result = await run(
-        ScriptedClient(call, done), window, CONFIG, [ADD], update=append_to(history),
-        max_steps=5, tracer=session.tracer(),
+    steps, _ = await agent(
+        model_for(ScriptedClient(call, done)), window, history, [ADD], tracer=session.tracer()
     )
-    assert [s.usage for s in result.steps] == [first, second]
-    assert result.usage == first + second
+    assert [s.usage for s in steps] == [first, second]
 
     loaded = load_session(tmp_path / "s")
     trace = loaded.runs["run-0001"]

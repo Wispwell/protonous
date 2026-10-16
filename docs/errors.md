@@ -17,6 +17,7 @@ Everything protonous raises is a `ProtonousError` (`protonous.errors`):
 | `NotASessionError` | `Session.open` on a directory without `session.json` | `FileNotFoundError` |
 | `RunExistsError` | a run file with that name already exists | `FileExistsError` |
 | `TraceFormatError` | a run file has no header line | `ValueError` |
+| `StreamIncompleteError` | a `ReplyStream`'s reply was asked for, but it was closed early or failed | |
 
 `ProviderError` wraps the SDK's exceptions, so code using protonous never imports
 `openai`. Its message is the provider's own error message; the SDK's raw rendering
@@ -25,11 +26,12 @@ is deliberately dropped (and not chained), because it contains account identifie
 
 ## The one handler
 
-`run()` catches anything that escapes the loop, including `KeyboardInterrupt` and
-`asyncio.CancelledError`. With a tracer, it records the failure (an `error` line in
-the run file, the traceback in the session's `errors.jsonl`, see
-[sessions](sessions.md#layout)), then re-raises the exception unchanged. Nothing is
-swallowed, and nothing else in protonous catches exceptions.
+`with tracer.recording():` catches anything that escapes the block, including
+`KeyboardInterrupt` and `asyncio.CancelledError`. It records the failure (an `error`
+line in the run file, the traceback in the session's `errors.jsonl`, see
+[sessions](sessions.md#layout)), then re-raises the exception unchanged. Wrap your
+agent loop in it. Nothing is swallowed, and nothing else in protonous catches
+exceptions.
 
 ## The one deliberate exception
 

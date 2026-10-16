@@ -58,3 +58,50 @@ def test_usage_adds_field_by_field_and_none_counts_as_nothing():
     assert total.reasoning_tokens is None  # nobody reported it
     assert sum([a, b], Usage()) == total
     assert Usage() + Usage() == Usage()
+
+
+# -- Step, check_pairing ---------------------------------------------------------------
+
+
+from protonous.context import Step, check_pairing
+from protonous.errors import ToolPairingError
+
+
+def _call(*ids):
+    return Message(
+        role=Role.ASSISTANT, content=None,
+        tool_calls=tuple(ToolCall(id=i, function_name="f", function_arguments="{}") for i in ids),
+    )
+
+
+def _result(call_id):
+    return Message(role=Role.TOOL, content="r", tool_call_id=call_id)
+
+
+def test_step_messages_and_usage():
+    reply = _call("c1").model_copy(update={"usage": Usage(total_tokens=5)})
+    step = Step(assistant=reply, tool_results=(_result("c1"),))
+    assert step.messages == (reply, step.tool_results[0])
+    assert step.usage.total_tokens == 5
+    assert Step(assistant=Message(role=Role.ASSISTANT, content="x")).usage == Usage()
+
+
+def test_check_pairing_accepts_well_formed_turns():
+    check_pairing(
+        [Message(role=Role.USER, content="go"), _call("c1", "c2"), _result("c2"), _result("c1"),
+         Message(role=Role.ASSISTANT, content="done")]
+    )
+
+
+@pytest.mark.parametrize(
+    "messages",
+    [
+        [_result("c1")],  # orphan result
+        [_call("c1")],  # call never answered
+        [_call("c1"), Message(role=Role.ASSISTANT, content="x"), _result("c1")],  # too late
+        [_call("c1"), _result("c1"), _result("c1")],  # answered twice
+    ],
+)
+def test_check_pairing_rejects(messages):
+    with pytest.raises(ToolPairingError):
+        check_pairing(messages)

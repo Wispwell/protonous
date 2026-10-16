@@ -1,15 +1,16 @@
 """Sessions and run traces.
 
 A session is a directory: the initial data shared by its runs, one JSONL file per
-run (one `run()` call), and one file collecting every run's failures.
+run (one agent loop, however the caller writes it), and one file collecting every
+run's failures.
 
     <session>/
       session.json          {"created": ..., "initial": {...}}
       run-0001.jsonl        one file per run:
         {"type": "run", "name": "run-0001", "meta": {...}}     the run's own metadata
         {"type": "step", "index": 0, "step": {...}}             a serialized Step
-        {"type": "end", "stop_reason": "done", "steps": 3}      run() returned, or
-        {"type": "error", "error": "ProviderError", "message": "..."}   run() raised
+        {"type": "end", "stop_reason": "done", "steps": 3}      tracer.end(), or
+        {"type": "error", "error": "ProviderError", "message": "..."}   raised in recording()
       errors.jsonl          {"run", "time", "error", "message", "traceback"} per failure
 
 Every line is appended and the file closed immediately, so a crash loses nothing.
@@ -20,7 +21,8 @@ from __future__ import annotations
 import json
 import re
 import traceback
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,7 +30,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
-from .context import Usage
+from .context import Step, Usage
 from .errors import (
     ConfigurationError,
     NotASessionError,
@@ -36,7 +38,6 @@ from .errors import (
     SessionExistsError,
     TraceFormatError,
 )
-from .loop import RunResult, Step
 
 SESSION_FILE = "session.json"
 ERRORS_FILE = "errors.jsonl"
@@ -60,7 +61,7 @@ class Trace(BaseModel):
     meta: dict[str, Any]
     steps: list[Step]
     stop_reason: str | None  # None: the run didn't finish
-    error: RunError | None  # set if run() raised
+    error: RunError | None  # set if the run raised inside tracer.recording()
 
     @property
     def usage(self) -> Usage:
@@ -98,8 +99,19 @@ class Tracer:
         self._write({"type": "step", "index": self._index, "step": step})
         self._index += 1
 
-    def end(self, result: RunResult) -> None:
-        self._write({"type": "end", "stop_reason": result.stop_reason, "steps": self._index})
+    def end(self, stop_reason: str) -> None:
+        """Mark the run finished, for whatever reason the caller's loop stopped."""
+        self._write({"type": "end", "stop_reason": stop_reason, "steps": self._index})
+
+    @contextmanager
+    def recording(self) -> Iterator[None]:
+        """protonous's one exception handler. Anything that escapes the block
+        (including Ctrl-C and cancellation) is recorded, then re-raised unchanged."""
+        try:
+            yield
+        except BaseException as e:
+            self.error(e)
+            raise
 
     def error(self, exc: BaseException) -> None:
         summary = {"error": type(exc).__name__, "message": str(exc)}

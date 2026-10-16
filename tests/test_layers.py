@@ -102,3 +102,11 @@ def test_context_window_concatenates_layers_in_order():
     history.add(_user("h1"))
     window = ContextWindow(layers=[StaticLayer([_user("sys")]), state, history])
     assert [m.content for m in window.view()] == ["sys", "state", "h1"]
+
+
+def test_extend_adds_in_order_and_respects_the_layer_rules():
+    layer = SlidingWindowLayer()
+    layer.extend([_user("a"), _call("c1"), _result("c1")])
+    assert _contents(layer) == ["a", None, "tool:c1"]
+    with pytest.raises(LayerError):
+        StaticLayer().extend([_user("x")])

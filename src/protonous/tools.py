@@ -176,6 +176,13 @@ def by_name(tools: Sequence[Tool]) -> dict[str, Tool]:
     return registry
 
 
+async def run_tools(tools: Sequence[Tool], reply: Message) -> tuple[Message, ...]:
+    """Run every tool call in `reply`, in order, one after another; return the
+    tool-result messages in call order (empty if the reply called no tools)."""
+    registry = by_name(tools)
+    return tuple([await execute(registry, call) for call in reply.tool_calls])
+
+
 async def execute(registry: Mapping[str, Tool], call: ToolCall) -> Message:
     """Run one tool call and return its tool-result message."""
     tool = registry.get(call.function_name)

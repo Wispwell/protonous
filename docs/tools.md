@@ -20,7 +20,7 @@ async def read_file(
     """Read a text file."""
     return Path(path).read_text()[:max_bytes]
 
-run(client, window, config, tools, ...)
+step = await model.step(window, tools)
 ```
 
 The decorator turns an async function into a `Tool`:
@@ -91,8 +91,9 @@ Here `fn` receives the validated model instance. `tool.spec` is the
 ## Execution
 
 `execute(registry, call)` runs one `ToolCall` and returns its tool-result `Message`.
-`by_name(tools)` builds the registry and rejects duplicate names. The loop does both;
-you rarely call them directly.
+`by_name(tools)` builds the registry and rejects duplicate names, and
+`run_tools(tools, reply)` runs every tool call of a reply in order. `model.step`
+uses them; you rarely call them directly.
 
 What the model gets back:
 

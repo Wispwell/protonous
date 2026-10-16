@@ -4,8 +4,8 @@
 - normalize_tools:    our ToolSpecs -> the SDK `tools` list.
 - normalize_chunk:    one streaming SDK delta -> our MessageChunk.
 
-Reasoning round-trips: assistant messages (all of them, or only the latest — the
-caller's choice) carry their `reasoning_details` back out,
+Reasoning round-trips: every assistant message in the window carries its
+`reasoning_details` back out,
 in original order and unmodified, as OpenRouter requires to keep reasoning across
 tool-calling turns. If a provider returned only a raw `reasoning` string, that goes
 back instead. OpenRouter's `reasoning` / `reasoning_details` are provider extensions,
@@ -25,20 +25,11 @@ from .context import (
 from .layers import ContextWindow
 
 
-def normalize_in(
-    context: ContextWindow, *, replay_all_reasoning: bool = True
-) -> list[dict[str, Any]]:
+def normalize_in(context: ContextWindow) -> list[dict[str, Any]]:
     """Flatten the window (layers in order, messages in order) into SDK messages.
-
-    Reasoning goes back on every assistant message, or, with
-    `replay_all_reasoning=False`, only on the most recent one.
-    """
-    view = context.view()
-    last_assistant = max(
-        (i for i, msg in enumerate(view) if msg.role is Role.ASSISTANT), default=None
-    )
+    Every assistant message carries its reasoning back out."""
     messages: list[dict[str, Any]] = []
-    for i, msg in enumerate(view):
+    for msg in context.view():
         entry: dict[str, Any] = {"role": msg.role.value, "content": msg.content}
         if msg.role is Role.ASSISTANT and msg.tool_calls:
             entry["tool_calls"] = [
@@ -49,7 +40,7 @@ def normalize_in(
                 }
                 for tc in msg.tool_calls
             ]
-        if msg.role is Role.ASSISTANT and (replay_all_reasoning or i == last_assistant):
+        if msg.role is Role.ASSISTANT:
             if msg.reasoning_details:
                 entry["reasoning_details"] = [
                     rd.model_dump(exclude_none=True) for rd in msg.reasoning_details

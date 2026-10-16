@@ -6,7 +6,7 @@ OpenAI/OpenRouter shape is `normalizers.py`; everything in here is ours.
 Design:
 - Message / ToolCall / ReasoningDetail / Usage / MessageChunk are immutable (frozen).
 - Context assembly (Layers, ContextWindow) lives in `layers.py`; this module holds
-  only the data types.
+  the data types, plus `check_pairing`, the integrity rule for tool-call traffic.
 - Token usage is only ever what the provider reports (`Usage` on assistant
   messages); protonous never counts tokens itself.
 - System prompts and rules use the `system` role (open-weight chat templates key on it).
@@ -14,12 +14,15 @@ Design:
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from .errors import ToolPairingError
 
 
 class Role(StrEnum):
@@ -262,7 +265,7 @@ class ToolSpec(BaseModel):
     """A tool declaration as the model sees it: pure data, no callable.
 
     `parameters` is a JSON Schema object. Turning specs into the provider's shape is
-    the normalizers' job; executing tools is the loop's.
+    the normalizers' job; executing them is `run_tools`'s.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -272,3 +275,44 @@ class ToolSpec(BaseModel):
     parameters: dict[str, Any] = Field(
         default_factory=lambda: {"type": "object", "properties": {}}
     )
+
+
+class Step(BaseModel):
+    """One turn: the model's reply and the results of its tool calls, in call order.
+    `tool_results` is empty when the model answered without calling tools."""
+
+    model_config = ConfigDict(frozen=True)
+
+    assistant: Message
+    tool_results: tuple[Message, ...] = ()
+
+    @property
+    def messages(self) -> tuple[Message, ...]:
+        """The reply followed by its tool results: what to add to a history."""
+        return (self.assistant, *self.tool_results)
+
+    @property
+    def usage(self) -> Usage:
+        """What this step's model call consumed (empty if the provider reported none)."""
+        return self.assistant.usage or Usage()
+
+
+def check_pairing(messages: Sequence[Message]) -> None:
+    """Raise ToolPairingError unless every tool call is answered before the next
+    non-tool message, and every tool result answers a call of the turn it sits in."""
+    pending: set[str] = set()
+    for i, msg in enumerate(messages):
+        if msg.role is Role.TOOL:
+            if msg.tool_call_id not in pending:
+                raise ToolPairingError(
+                    f"message {i}: tool result {msg.tool_call_id!r} answers no open tool call"
+                )
+            pending.discard(msg.tool_call_id)
+            continue
+        if pending:
+            raise ToolPairingError(
+                f"message {i}: tool call(s) {sorted(pending)} have no result before it"
+            )
+        pending = {tc.id for tc in msg.tool_calls}
+    if pending:
+        raise ToolPairingError(f"tool call(s) {sorted(pending)} have no result")

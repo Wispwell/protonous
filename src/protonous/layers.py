@@ -33,6 +33,11 @@ class Layer(ABC):
     @abstractmethod
     def view(self) -> list[Message]: ...
 
+    def extend(self, messages: Iterable[Message]) -> None:
+        """`add` each message in order (e.g. `history.extend(step.messages)`)."""
+        for msg in messages:
+            self.add(msg)
+
 
 class StaticLayer(Layer):
     """Messages fixed at construction (e.g. a system prompt). `add` raises."""

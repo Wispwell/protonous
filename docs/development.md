@@ -37,12 +37,13 @@ expands as a home directory.
 
 ```
 src/protonous/
-  context.py      Message, ToolCall, ReasoningDetail, Usage, MessageChunk, ToolSpec
+  context.py      Message, ToolCall, ReasoningDetail, Usage, MessageChunk, ToolSpec, Step,
+                  check_pairing
   layers.py       Layer, StaticLayer, SingleMessageLayer, SlidingWindowLayer, ContextWindow
   normalizers.py  the only code that speaks the OpenAI/OpenRouter wire format
   client.py       OpenrouterClient, OpenrouterConfig
-  tools.py        Toolbox, tool (decorator), Tool, by_name, execute
-  loop.py         run, Step, RunResult, append_to, check_pairing
+  tools.py        Toolbox, tool (decorator), Tool, run_tools, by_name, execute
+  model.py        Model (call, step, stream), ReplyStream
   trace.py        Session, Tracer, load_session, load_trace
   errors.py       ProtonousError and subclasses
   cli.py          the `protonous` command
@@ -57,6 +58,9 @@ docs/             this wiki
 - Data types are frozen Pydantic models, not dataclasses.
 - `src/` passes `mypy --strict`.
 - Only `normalizers.py` knows the provider's wire format.
-- Errors are `ProtonousError`s, raised where they happen; `run()` is the only handler.
-- Scope: one agent, one loop, tools, traces. Personas, memory, containment and
+- Errors are `ProtonousError`s, raised where they happen; `Tracer.recording()` is the
+  only handler.
+- The agent loop belongs to the caller: protonous provides the calls and never
+  manages the window.
+- Scope: one agent, tools, traces. Personas, memory, containment and
   environments belong to the projects that use protonous.

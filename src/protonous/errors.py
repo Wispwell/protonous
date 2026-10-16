@@ -1,7 +1,8 @@
 """Every exception protonous raises. Catch `ProtonousError` to catch all of them.
 
-Raised wherever they happen; the one place that handles them is `run()`, which
-records the failure in the run's trace and re-raises it unchanged.
+Raised wherever they happen; the one place that handles them is
+`Tracer.recording()`, which records the failure in the run's trace and re-raises
+it unchanged.
 """
 from __future__ import annotations
 
@@ -49,3 +50,8 @@ class RunExistsError(ProtonousError, FileExistsError):
 
 class TraceFormatError(ProtonousError, ValueError):
     """A trace file is malformed (e.g. no run header line)."""
+
+
+class StreamIncompleteError(ProtonousError):
+    """A ReplyStream's reply was asked for, but the stream wasn't read to the end:
+    it was closed early, or it failed (the failure itself was raised while reading)."""
