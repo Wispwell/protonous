@@ -67,7 +67,8 @@ class ToolCall(BaseModel):
     @property
     def parsed_arguments(self) -> dict[str, Any]:
         """json.loads the arguments. Only valid once the call is complete."""
-        return json.loads(self.function_arguments)
+        parsed: dict[str, Any] = json.loads(self.function_arguments)
+        return parsed
 
 
 class Usage(BaseModel):

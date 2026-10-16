@@ -7,12 +7,22 @@ pip install -e ".[dev]"
 cp .env.example .env        # OPENROUTER_API_KEY
 ```
 
-## Tests
+Then, once per clone:
 
 ```bash
-pytest                      # offline; fakes stand in for the provider
-ruff check .
+pre-commit install         # run the checks on every commit
 ```
+
+## Checks
+
+```bash
+pre-commit run --all-files  # ruff, strict mypy on src/, file hygiene, private-key scan
+pytest                      # offline; fakes stand in for the provider
+```
+
+CI (`.github/workflows/ci.yml`) runs exactly these two commands on every push and
+pull request. The hook versions are pinned in `.pre-commit-config.yaml`, so local
+and CI checks are identical.
 
 Live smokes call a real model and are deselected by default:
 
@@ -45,6 +55,7 @@ docs/             this wiki
 ## Conventions
 
 - Data types are frozen Pydantic models, not dataclasses.
+- `src/` passes `mypy --strict`.
 - Only `normalizers.py` knows the provider's wire format.
 - Errors are `ProtonousError`s, raised where they happen; `run()` is the only handler.
 - Scope: one agent, one loop, tools, traces. Personas, memory, containment and

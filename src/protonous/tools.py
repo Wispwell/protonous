@@ -136,7 +136,7 @@ class Toolbox(Sequence[Tool]):
     def tool(self, fn: ToolFn, /) -> Tool: ...
     @overload
     def tool(
-        self, *, name: str | None = None, description: str | None = None
+        self, /, *, name: str | None = None, description: str | None = None
     ) -> Callable[[ToolFn], Tool]: ...
     def tool(
         self,

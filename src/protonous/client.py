@@ -7,10 +7,11 @@ the caller's job (via MessageChunk `+`); `collect()` is the convenience for when
 per-chunk access isn't needed.
 """
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import openai
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
 
 from .context import Message, MessageChunk, ToolSpec
@@ -63,6 +64,17 @@ class OpenrouterConfig(BaseModel):
         return params
 
 
+def _messages(
+    context: ContextWindow, replay_all_reasoning: bool
+) -> list[ChatCompletionMessageParam]:
+    # Our messages carry OpenRouter extensions (reasoning, reasoning_details) that the
+    # SDK's TypedDicts don't model; the SDK sends them through unchanged.
+    return cast(
+        "list[ChatCompletionMessageParam]",
+        normalize_in(context, replay_all_reasoning=replay_all_reasoning),
+    )
+
+
 def _request(config: OpenrouterConfig, tools: Sequence[ToolSpec] | None) -> dict[str, Any]:
     params = config.to_params()
     if tools:
@@ -108,7 +120,7 @@ class OpenrouterClient:
     ) -> Message:
         try:
             response = await self._client.chat.completions.create(
-                messages=normalize_in(context, replay_all_reasoning=replay_all_reasoning),
+                messages=_messages(context, replay_all_reasoning),
                 stream=False,
                 **_request(config, tools),
             )
@@ -126,7 +138,7 @@ class OpenrouterClient:
     ) -> AsyncIterator[MessageChunk]:
         try:
             stream = await self._client.chat.completions.create(
-                messages=normalize_in(context, replay_all_reasoning=replay_all_reasoning),
+                messages=_messages(context, replay_all_reasoning),
                 stream=True,
                 stream_options={"include_usage": True},
                 **_request(config, tools),
