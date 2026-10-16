@@ -62,7 +62,9 @@ reasoning across tool-calling turns; if a provider gave only a raw `reasoning`
 string, that is sent instead. Reasoning goes back exactly as it sits in the window:
 to send less, change what the window holds.
 
-Stored messages are never changed, so traces always keep all reasoning. Models that
+Reasoning blocks keep every field the provider sent, including ones protonous
+doesn't model, so they go back exactly as received. Stored messages are never
+changed, so traces always keep all reasoning. Models that
 return encrypted reasoning round-trip fine but can't be read.
 
 ## Usage

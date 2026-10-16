@@ -37,9 +37,13 @@ class ReasoningDetail(BaseModel):
 
     Fields are type-dependent: `type` is one of reasoning.summary|encrypted|text;
     summary uses `summary`, encrypted uses `data`, text uses `text` (+ `signature`).
+
+    Fields a provider sends that aren't modelled here are kept as they are (Pydantic
+    `extra="allow"`): providers require reasoning blocks back unmodified, so nothing
+    may be dropped between receiving a block, tracing it and sending it back.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="allow")
 
     type: str
     id: str | None = None
@@ -186,8 +190,8 @@ def _merge_reasoning_details(
     a: tuple[ReasoningDetail, ...] | None, b: tuple[ReasoningDetail, ...] | None
 ) -> tuple[ReasoningDetail, ...] | None:
     """Merge streaming reasoning fragments by `index`, concatenating `text`
-    (parallel to tool-call argument accumulation). Non-text fields are taken from
-    whichever fragment supplies them.
+    (parallel to tool-call argument accumulation). Every other field, unmodelled
+    provider fields included, is taken from the last fragment that supplies it.
     """
     if a is None and b is None:
         return None
@@ -196,24 +200,14 @@ def _merge_reasoning_details(
     for rd in (a or ()) + (b or ()):
         idx = rd.index if rd.index is not None else 0
         if idx not in acc:
-            acc[idx] = {
-                "type": rd.type,
-                "id": None,
-                "format": None,
-                "index": rd.index,
-                "summary": None,
-                "data": None,
-                "text": None,
-                "signature": None,
-            }
+            acc[idx] = {"type": rd.type, "index": rd.index}
             order.append(idx)
         cur = acc[idx]
-        for f in ("type", "id", "format", "summary", "data", "signature"):
-            v = getattr(rd, f)
-            if v is not None:
-                cur[f] = v
-        if rd.text is not None:
-            cur["text"] = (cur["text"] or "") + rd.text
+        for name, value in rd.model_dump(exclude_none=True).items():
+            if name == "text":
+                cur["text"] = cur.get("text", "") + value
+            elif name != "index":
+                cur[name] = value
     return tuple(ReasoningDetail(**acc[i]) for i in order)
 
 

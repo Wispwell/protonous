@@ -243,3 +243,14 @@ async def test_usage_is_traced_per_step_and_summed(tmp_path):
     assert [s.usage for s in trace.steps] == [first, second]  # survives the JSONL round-trip
     assert trace.usage.total_tokens == 310 and trace.usage.cost == pytest.approx(0.003)
     assert loaded.usage == trace.usage
+
+
+def test_unmodelled_reasoning_fields_survive_a_trace(tmp_path):
+    reply = Message(
+        role=Role.ASSISTANT, content="ok",
+        reasoning_details=(ReasoningDetail(type="reasoning.text", text="hm", provider_hint=7),),
+    )
+    tracer = Tracer(tmp_path / "r.jsonl")
+    tracer.step(Step(assistant=reply))
+    loaded = load_trace(tmp_path / "r.jsonl").steps[0].assistant.reasoning_details[0]
+    assert loaded.model_extra == {"provider_hint": 7}

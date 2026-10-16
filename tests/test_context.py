@@ -105,3 +105,13 @@ def test_check_pairing_accepts_well_formed_turns():
 def test_check_pairing_rejects(messages):
     with pytest.raises(ToolPairingError):
         check_pairing(messages)
+
+
+def test_reasoning_merge_keeps_unmodelled_fields():
+    a = MessageChunk(reasoning_details=(
+        ReasoningDetail(type="reasoning.text", index=0, text="I ", trace_id="t1"),))
+    b = MessageChunk(reasoning_details=(
+        ReasoningDetail(type="reasoning.text", index=0, text="think", signature="s"),))
+    merged = (a + b).reasoning_details[0]
+    assert merged.text == "I think" and merged.signature == "s"
+    assert merged.model_extra == {"trace_id": "t1"}

@@ -137,3 +137,16 @@ def test_normalize_chunk_usage_only_tail():
     c = normalize_chunk(chunk)
     assert c.content is None and c.role is None
     assert c.usage.completion_tokens == 2
+
+
+def test_unmodelled_reasoning_fields_survive_parse_and_send():
+    block = {"type": "reasoning.text", "index": 0, "text": "hm", "signature": "sig",
+             "provider_hint": {"v": 2}}
+    delta = SimpleNamespace(role="assistant", content=None, tool_calls=None, reasoning=None,
+                            reasoning_details=[block])
+    chunk = SimpleNamespace(id="g", usage=None,
+                            choices=[SimpleNamespace(finish_reason="stop", delta=delta)])
+    msg = normalize_chunk(chunk).convert()
+    assert msg.reasoning_details[0].model_extra == {"provider_hint": {"v": 2}}
+    sent = normalize_in(_window(msg))
+    assert sent[0]["reasoning_details"] == [block]  # back out exactly as received

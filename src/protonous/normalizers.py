@@ -91,21 +91,21 @@ def _get(obj: Any, key: str) -> Any:
 
 
 def _to_reasoning_details(raw: Any) -> tuple[ReasoningDetail, ...] | None:
+    """Every field of every block, modelled or not: blocks go back unmodified."""
     if not raw:
         return None
-    return tuple(
-        ReasoningDetail(
-            type=_get(rd, "type") or "",
-            id=_get(rd, "id"),
-            format=_get(rd, "format"),
-            index=_get(rd, "index"),
-            summary=_get(rd, "summary"),
-            data=_get(rd, "data"),
-            text=_get(rd, "text"),
-            signature=_get(rd, "signature"),
-        )
-        for rd in raw
-    )
+    return tuple(ReasoningDetail.model_validate(_fields(rd)) for rd in raw)
+
+
+def _fields(block: Any) -> dict[str, Any]:
+    if isinstance(block, dict):
+        fields = dict(block)
+    elif hasattr(block, "model_dump"):
+        fields = block.model_dump()
+    else:
+        fields = dict(vars(block))
+    fields["type"] = fields.get("type") or ""
+    return {name: value for name, value in fields.items() if value is not None}
 
 
 def _to_usage(raw: Any) -> Usage | None:
