@@ -3,6 +3,13 @@
 A lightweight agent framework over OpenRouter: typed context, one provider layer, one loop, traced runs.
 
 ```python
+tools = Toolbox()
+
+@tools.tool
+async def add(a: float, b: float) -> str:
+    """Add two numbers."""
+    return str(a + b)
+
 history = SlidingWindowLayer()
 history.add(Message(role=Role.USER, content="Compute (17 + 25) * 3."))
 window = ContextWindow(layers=[StaticLayer([system_prompt]), history])
@@ -27,8 +34,9 @@ run-0001 · done · 4 step(s)
 
 - **Context in layers**: static rules, a single refreshed state message, a sliding
   history that never splits a tool call from its result.
-- **Native tool calling**: Pydantic-typed tools; model mistakes come back to the
-  model as tool results instead of crashing the run.
+- **Native tool calling**: decorate a typed async function to add it to an agent's
+  `Toolbox`; model mistakes come back to the model as tool results instead of
+  crashing the run.
 - **Reasoning round-trip**: reasoning is sent back to the provider across tool turns
   and kept in full in every trace.
 - **Sessions**: one directory per session, one JSONL file per run, failures recorded

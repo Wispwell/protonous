@@ -12,8 +12,9 @@ from __future__ import annotations
 import asyncio
 import sys
 from datetime import UTC, datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from protonous.cli import render_session
 from protonous.client import OpenrouterClient, OpenrouterConfig
@@ -21,7 +22,7 @@ from protonous.context import Message, Role
 from protonous.layers import ContextWindow, SingleMessageLayer, SlidingWindowLayer, StaticLayer
 from protonous.loop import Step, append_to, run
 from protonous.settings import get_settings
-from protonous.tools import Tool
+from protonous.tools import Toolbox
 from protonous.trace import Session, load_session
 
 SYSTEM = (
@@ -33,36 +34,27 @@ TASK = "Compute (17 + 25) * 3. Write the result to the notepad, then state it."
 
 # -- tools ------------------------------------------------------------------------
 
-class TwoNumbers(BaseModel):
-    a: float
-    b: float
-
-
-class Note(BaseModel):
-    text: str = Field(description="What to write down.")
-
-
 notepad: list[str] = []
+tools = Toolbox()
 
 
-async def add(args: TwoNumbers) -> str:
-    return str(args.a + args.b)
+@tools.tool
+async def add(a: float, b: float) -> str:
+    """Add two numbers."""
+    return str(a + b)
 
 
-async def multiply(args: TwoNumbers) -> str:
-    return str(args.a * args.b)
+@tools.tool
+async def multiply(a: float, b: float) -> str:
+    """Multiply two numbers."""
+    return str(a * b)
 
 
-async def write_note(args: Note) -> str:
-    notepad.append(args.text)
+@tools.tool
+async def write_note(text: Annotated[str, Field(description="What to write down.")]) -> str:
+    """Write a line to the notepad."""
+    notepad.append(text)
     return f"noted ({len(notepad)} note(s) total)"
-
-
-TOOLS = [
-    Tool(name="add", description="Add two numbers.", args=TwoNumbers, fn=add),
-    Tool(name="multiply", description="Multiply two numbers.", args=TwoNumbers, fn=multiply),
-    Tool(name="write_note", description="Write a line to the notepad.", args=Note, fn=write_note),
-]
 
 
 # -- context ----------------------------------------------------------------------
@@ -91,14 +83,14 @@ async def main(model: str) -> None:
     config = OpenrouterConfig(model=model, max_tokens=2048, reasoning_effort="low")
     session = Session.create(
         f"sessions/demo-{datetime.now(UTC):%Y%m%d-%H%M%S}",
-        {"config": config, "window": window.view(), "tools": [tool.spec for tool in TOOLS]},
+        {"config": config, "window": window.view(), "tools": [t.spec for t in tools]},
     )
 
     result = await run(
         OpenrouterClient(get_settings()),
         window,
         config,
-        TOOLS,
+        tools,
         update=update,
         max_steps=10,
         tracer=session.tracer(meta={"task": TASK}),

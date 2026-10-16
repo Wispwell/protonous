@@ -195,3 +195,20 @@ async def test_replay_all_reasoning_is_passed_to_the_client():
         replay_all_reasoning=False,
     )
     assert client.replay_flags == [True] and client2.replay_flags == [False]
+
+
+async def test_run_accepts_a_toolbox():
+    from protonous.tools import Toolbox
+
+    box = Toolbox()
+
+    @box.tool
+    async def add(a: int, b: int) -> str:
+        """Add."""
+        return str(a + b)
+
+    window, history = _setup()
+    client = ScriptedClient(_calls(("c1", "add", '{"a": 2, "b": 3}')), _say("5"))
+    result = await run(client, window, CONFIG, box, update=append_to(history), max_steps=5)
+    assert client.seen[0][1] == ["add"]
+    assert result.steps[0].tool_results[0].content == "5"

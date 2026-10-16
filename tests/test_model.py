@@ -55,26 +55,21 @@ async def test_live_stream_collect():
 
 
 async def test_live_loop_uses_a_tool():
-    from pydantic import BaseModel
-
     from protonous.layers import SlidingWindowLayer
     from protonous.loop import append_to, run
-    from protonous.tools import Tool
+    from protonous.tools import tool
 
-    class AddArgs(BaseModel):
-        a: int
-        b: int
-
-    async def _add(args: AddArgs) -> str:
-        return str(args.a + args.b)
+    @tool
+    async def add(a: int, b: int) -> str:
+        """Add two integers."""
+        return str(a + b)
 
     history = SlidingWindowLayer()
     history.add(
         Message(role=Role.USER, content="Use the add tool to compute 17 + 25, then state the result.")
     )
     window = ContextWindow(layers=[history])
-    tool = Tool(name="add", description="Add two integers.", args=AddArgs, fn=_add)
-    result = await run(_client(), window, _config(), [tool], update=append_to(history), max_steps=4)
+    result = await run(_client(), window, _config(), [add], update=append_to(history), max_steps=4)
     assert result.stop_reason == "done"
     assert any(step.tool_results for step in result.steps)
     assert "42" in (result.steps[-1].assistant.content or "")

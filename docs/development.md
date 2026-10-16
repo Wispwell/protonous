@@ -31,7 +31,7 @@ src/protonous/
   layers.py       Layer, StaticLayer, SingleMessageLayer, SlidingWindowLayer, ContextWindow
   normalizers.py  the only code that speaks the OpenAI/OpenRouter wire format
   client.py       OpenrouterClient, OpenrouterConfig
-  tools.py        Tool, by_name, execute
+  tools.py        Toolbox, tool (decorator), Tool, by_name, execute
   loop.py         run, Step, RunResult, append_to, check_pairing
   trace.py        Session, Tracer, load_session, load_trace
   errors.py       ProtonousError and subclasses
