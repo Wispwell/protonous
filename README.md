@@ -3,6 +3,11 @@
 A lightweight agent framework over OpenRouter: typed context, one provider layer, traced runs, and a loop you write yourself.
 
 ```python
+from protonous import (
+    ContextWindow, Message, Model, OpenrouterClient, OpenrouterConfig, Role,
+    Session, SlidingWindowLayer, StaticLayer, Toolbox, get_settings,
+)
+
 tools = Toolbox()
 
 @tools.tool

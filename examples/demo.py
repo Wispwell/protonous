@@ -17,14 +17,22 @@ from typing import Annotated
 
 from pydantic import Field
 
+from protonous import (
+    ContextWindow,
+    Message,
+    Model,
+    OpenrouterClient,
+    OpenrouterConfig,
+    Role,
+    Session,
+    SingleMessageLayer,
+    SlidingWindowLayer,
+    StaticLayer,
+    Toolbox,
+    get_settings,
+    load_session,
+)
 from protonous.cli import render_session
-from protonous.client import OpenrouterClient, OpenrouterConfig
-from protonous.context import Message, Role
-from protonous.layers import ContextWindow, SingleMessageLayer, SlidingWindowLayer, StaticLayer
-from protonous.model import Model
-from protonous.settings import get_settings
-from protonous.tools import Toolbox
-from protonous.trace import Session, load_session
 
 SYSTEM = (
     "You are a careful assistant. Use the tools for every calculation, and record "

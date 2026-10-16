@@ -37,6 +37,7 @@ expands as a home directory.
 
 ```
 src/protonous/
+  __init__.py     the public API: everything an agent is built from, one import away
   context.py      Message, ToolCall, ReasoningDetail, Usage, MessageChunk, ToolSpec, Step,
                   check_pairing
   layers.py       Layer, StaticLayer, SingleMessageLayer, SlidingWindowLayer, ContextWindow
