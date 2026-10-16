@@ -42,7 +42,19 @@ def test_chunk_add_reasoning_details_merge_by_index():
     assert (a + b).reasoning_details[0].text == "I think"
 
 
-def test_chunk_convert_sets_token_count_and_tuples():
-    m = MessageChunk(role=Role.ASSISTANT, content="hi", usage=Usage(completion_tokens=3)).convert()
-    assert m.role == Role.ASSISTANT and m.content == "hi" and m.token_count == 3
+def test_chunk_convert_keeps_usage_and_tuples():
+    usage = Usage(prompt_tokens=10, completion_tokens=3, total_tokens=13, cost=0.002)
+    m = MessageChunk(role=Role.ASSISTANT, content="hi", usage=usage).convert()
+    assert m.role == Role.ASSISTANT and m.content == "hi" and m.usage == usage
     assert isinstance(m.tool_calls, tuple)
+
+
+def test_usage_adds_field_by_field_and_none_counts_as_nothing():
+    a = Usage(prompt_tokens=100, completion_tokens=20, total_tokens=120, cost=0.01)
+    b = Usage(prompt_tokens=150, completion_tokens=30, total_tokens=180, cached_tokens=90)
+    total = a + b
+    assert (total.prompt_tokens, total.completion_tokens, total.total_tokens) == (250, 50, 300)
+    assert total.cached_tokens == 90 and total.cost == 0.01
+    assert total.reasoning_tokens is None  # nobody reported it
+    assert sum([a, b], Usage()) == total
+    assert Usage() + Usage() == Usage()

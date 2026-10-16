@@ -60,6 +60,8 @@ s.initial                      # dict
 s.runs["run-0001"].steps       # list[Step], exactly as recorded
 s.runs["run-0001"].stop_reason # "done" | "max_steps" | None (didn't finish)
 s.runs["run-0001"].error       # RunError(error, message) | None
+s.runs["run-0001"].usage       # Usage summed over the run's steps
+s.usage                        # Usage summed over the whole session
 s.errors                       # list[ErrorRecord], with tracebacks
 ```
 

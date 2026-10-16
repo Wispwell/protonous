@@ -228,3 +228,27 @@ def test_session_errors_are_typed(tmp_path):
     session.tracer("x")
     with pytest.raises(RunExistsError):
         session.tracer("x")
+
+
+async def test_usage_is_traced_per_step_and_summed(tmp_path):
+    from protonous.context import Usage
+
+    first = Usage(prompt_tokens=100, completion_tokens=20, total_tokens=120, cost=0.001)
+    second = Usage(prompt_tokens=180, completion_tokens=10, total_tokens=190, cost=0.002)
+    call = _call_reply().model_copy(update={"usage": first})
+    done = _done().model_copy(update={"usage": second})
+
+    window, history = _setup()
+    session = Session.create(tmp_path / "s", {})
+    result = await run(
+        ScriptedClient(call, done), window, CONFIG, [ADD], update=append_to(history),
+        max_steps=5, tracer=session.tracer(),
+    )
+    assert [s.usage for s in result.steps] == [first, second]
+    assert result.usage == first + second
+
+    loaded = load_session(tmp_path / "s")
+    trace = loaded.runs["run-0001"]
+    assert [s.usage for s in trace.steps] == [first, second]  # survives the JSONL round-trip
+    assert trace.usage.total_tokens == 310 and trace.usage.cost == pytest.approx(0.003)
+    assert loaded.usage == trace.usage

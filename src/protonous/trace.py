@@ -28,6 +28,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
+from .context import Usage
 from .errors import (
     ConfigurationError,
     NotASessionError,
@@ -61,12 +62,22 @@ class Trace(BaseModel):
     stop_reason: str | None  # None: the run didn't finish
     error: RunError | None  # set if run() raised
 
+    @property
+    def usage(self) -> Usage:
+        """Summed over the recorded steps (a failed run's partial reply isn't one)."""
+        return sum((step.usage for step in self.steps), Usage())
+
 
 class SessionTrace(BaseModel):
     created: datetime
     initial: dict[str, Any]
     runs: dict[str, Trace]  # by run name, sorted
     errors: list[ErrorRecord]  # in the order they happened
+
+    @property
+    def usage(self) -> Usage:
+        """Summed over every run in the session."""
+        return sum((trace.usage for trace in self.runs.values()), Usage())
 
 
 class Tracer:

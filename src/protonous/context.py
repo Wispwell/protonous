@@ -7,7 +7,8 @@ Design:
 - Message / ToolCall / ReasoningDetail / Usage / MessageChunk are immutable (frozen).
 - Context assembly (Layers, ContextWindow) lives in `layers.py`; this module holds
   only the data types.
-- token_count is the provider-reported completion count, never estimated locally.
+- Token usage is only ever what the provider reports (`Usage` on assistant
+  messages); protonous never counts tokens itself.
 - System prompts and rules use the `system` role (open-weight chat templates key on it).
 """
 from __future__ import annotations
@@ -72,7 +73,17 @@ class ToolCall(BaseModel):
 
 
 class Usage(BaseModel):
-    """Per-response token accounting (never per-message)."""
+    """Token accounting for one response, exactly as the provider reported it.
+
+    `prompt_tokens` is the whole input of that request (template and tool schemas
+    included), of which `cached_tokens` were served from cache and
+    `cache_write_tokens` written to it; `completion_tokens` includes
+    `reasoning_tokens`. `cost` is in OpenRouter credits (USD). A field the provider
+    didn't report stays None.
+
+    `+` adds two usages field by field (None counts as nothing), so totals over
+    many responses are `sum(usages, Usage())`.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -81,6 +92,26 @@ class Usage(BaseModel):
     total_tokens: int | None = None
     reasoning_tokens: int | None = None
     cached_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    cost: float | None = None
+
+    def __add__(self, other: Usage) -> Usage:
+        if not isinstance(other, Usage):
+            return NotImplemented
+        return Usage(
+            **{
+                name: _add_optional(getattr(self, name), getattr(other, name))
+                for name in Usage.model_fields
+            }
+        )
+
+
+def _add_optional(a: float | None, b: float | None) -> float | None:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return a + b
 
 
 class Message(BaseModel):
@@ -94,7 +125,7 @@ class Message(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     provider_id: str | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    token_count: int | None = None
+    usage: Usage | None = None  # set on assistant replies
     reasoning: str | None = None
     reasoning_details: tuple[ReasoningDetail, ...] | None = None
     stop_reason: str | None = None
@@ -219,7 +250,7 @@ class MessageChunk(BaseModel):
             role=self.role if self.role is not None else Role.ASSISTANT,
             content=self.content,
             provider_id=self.provider_id,
-            token_count=self.usage.completion_tokens if self.usage is not None else None,
+            usage=self.usage,
             reasoning=self.reasoning,
             reasoning_details=self.reasoning_details,
             stop_reason=self.stop_reason,

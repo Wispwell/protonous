@@ -32,8 +32,11 @@ def _chunk(finish_reason=None, usage=None, **delta):
     )
 
 
-USAGE = SimpleNamespace(completion_tokens=2, prompt_tokens=1, total_tokens=3,
-                        completion_tokens_details=None, prompt_tokens_details=None)
+USAGE = SimpleNamespace(
+    completion_tokens=2, prompt_tokens=10, total_tokens=12, cost=0.00004,
+    completion_tokens_details=SimpleNamespace(reasoning_tokens=1),
+    prompt_tokens_details=SimpleNamespace(cached_tokens=6, cache_write_tokens=4),
+)
 HELLO = [
     _chunk(role="assistant", content="He"),
     _chunk(content="llo"),
@@ -69,13 +72,18 @@ def _client(stream_items=(), *, raise_on_create=None, seen=None):
 async def test_stream_and_collect_folds():
     msg = await collect(_client(HELLO).stream(_ctx(), CONFIG))
     assert msg.content == "Hello" and msg.role is Role.ASSISTANT
-    assert msg.stop_reason == "stop" and msg.token_count == 2
+    assert msg.stop_reason == "stop"
+    assert msg.usage is not None
+    assert msg.usage.model_dump() == {
+        "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12, "reasoning_tokens": 1,
+        "cached_tokens": 6, "cache_write_tokens": 4, "cost": 0.00004,
+    }
 
 
 async def test_complete_is_a_collected_stream():
     seen = {}
     msg = await _client(HELLO, seen=seen).complete(_ctx(), CONFIG)
-    assert msg.content == "Hello" and msg.token_count == 2
+    assert msg.content == "Hello" and msg.usage.total_tokens == 12
     assert seen["stream"] is True and seen["stream_options"] == {"include_usage": True}
 
 

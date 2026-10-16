@@ -13,6 +13,7 @@ import json
 import sys
 from pathlib import Path
 
+from .context import Usage
 from .errors import ProtonousError
 from .trace import ERRORS_FILE, SessionTrace, Trace, load_session
 
@@ -21,8 +22,9 @@ WIDTH = 160
 
 def render_session(session_id: str, session: SessionTrace, *, full: bool = False) -> list[str]:
     created = session.created.strftime("%Y-%m-%d %H:%M:%S %Z")
+    runs = f"{len(session.runs)} run(s)"
     lines = [
-        f"session {session_id} · created {created} · {len(session.runs)} run(s)",
+        f"session {session_id} · created {created} · {runs}{_usage_text(session.usage)}",
         f"initial: {', '.join(session.initial) or '(none)'}",
     ]
     for trace in session.runs.values():
@@ -42,7 +44,7 @@ def render_run(trace: Trace, *, full: bool = False) -> list[str]:
         status = f"ERROR {trace.error.error}: {trace.error.message}"
     else:
         status = trace.stop_reason or "unfinished"
-    lines = [cut(f"{trace.name} · {status} · {len(trace.steps)} step(s)")]
+    lines = [cut(f"{trace.name} · {status} · {len(trace.steps)} step(s){_usage_text(trace.usage)}")]
     if trace.meta:
         lines.append(cut(f"  meta: {json.dumps(trace.meta, ensure_ascii=False)}"))
     for i, step in enumerate(trace.steps):
@@ -57,6 +59,19 @@ def render_run(trace: Trace, *, full: bool = False) -> list[str]:
         if reply.content and reply.content.strip():
             lines.append(cut(f"  [{i}] says: {reply.content.strip()}"))
     return lines
+
+
+def _usage_text(usage: Usage) -> str:
+    """` · 3,812 tokens (3,500 in, 312 out) · $0.0021`, or "" if nothing was reported."""
+    parts = []
+    if usage.total_tokens is not None:
+        detail = ""
+        if usage.prompt_tokens is not None and usage.completion_tokens is not None:
+            detail = f" ({usage.prompt_tokens:,} in, {usage.completion_tokens:,} out)"
+        parts.append(f"{usage.total_tokens:,} tokens{detail}")
+    if usage.cost is not None:
+        parts.append(f"${usage.cost:.4f}")
+    return "".join(f" · {part}" for part in parts)
 
 
 def _cut(text: str, full: bool) -> str:

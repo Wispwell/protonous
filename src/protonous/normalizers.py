@@ -128,6 +128,10 @@ def _to_usage(raw: Any) -> Usage | None:
         total_tokens=getattr(raw, "total_tokens", None),
         reasoning_tokens=getattr(ctd, "reasoning_tokens", None) if ctd is not None else None,
         cached_tokens=getattr(ptd, "cached_tokens", None) if ptd is not None else None,
+        cache_write_tokens=(
+            getattr(ptd, "cache_write_tokens", None) if ptd is not None else None
+        ),
+        cost=getattr(raw, "cost", None),  # OpenRouter extension
     )
 
 

@@ -1,5 +1,5 @@
 from protonous.cli import main
-from protonous.context import Message, Role, ToolCall
+from protonous.context import Message, Role, ToolCall, Usage
 from protonous.errors import ProviderError
 from protonous.loop import Step
 from protonous.trace import Session
@@ -11,6 +11,7 @@ def _session(root):
     call = Message(
         role=Role.ASSISTANT,
         content=None,
+        usage=Usage(prompt_tokens=1200, completion_tokens=34, total_tokens=1234, cost=0.0021),
         reasoning="I should\nadd these",
         tool_calls=(
             ToolCall(id="c1", function_name="add", function_arguments='{"a":1,"b":2}'),
@@ -34,7 +35,9 @@ def test_replay_prints_runs_and_events(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "session s1" in out and "2 run(s)" in out
     assert "initial: config, tools" in out
-    assert "run-0001 · unfinished · 2 step(s)" in out
+    assert "run-0001 · unfinished · 2 step(s) · 1,234 tokens (1,200 in, 34 out) · $0.0021" in out
+    assert "session s1 · " in out and "2 run(s) · 1,234 tokens" in out
+    assert "run-0002 · ERROR ProviderError: HTTP 400: bad model · 0 step(s)\n" in out + "\n"
     assert '  meta: {"task": "add"}' in out
     assert "  [0] thinks: I should add these" in out  # flattened to one line, indent kept
     assert '  [0] add({"a":1,"b":2}) → 3' in out

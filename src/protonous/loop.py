@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict
 
 from .client import OpenrouterClient, OpenrouterConfig
-from .context import Message, MessageChunk, Role, ToolSpec
+from .context import Message, MessageChunk, Role, ToolSpec, Usage
 from .errors import ConfigurationError, ToolPairingError
 from .layers import ContextWindow, Layer
 from .tools import Tool, by_name, execute
@@ -31,6 +31,11 @@ class Step(BaseModel):
     assistant: Message
     tool_results: tuple[Message, ...] = ()
 
+    @property
+    def usage(self) -> Usage:
+        """What this step's model call consumed (empty if the provider reported none)."""
+        return self.assistant.usage or Usage()
+
 
 Update = Callable[[ContextWindow, Step], ContextWindow]
 OnChunk = Callable[[MessageChunk], None]
@@ -42,6 +47,11 @@ class RunResult(BaseModel):
     window: ContextWindow
     steps: tuple[Step, ...]
     stop_reason: Literal["done", "max_steps"]
+
+    @property
+    def usage(self) -> Usage:
+        """Summed over all steps."""
+        return sum((step.usage for step in self.steps), Usage())
 
 
 def append_to(layer: Layer) -> Update:

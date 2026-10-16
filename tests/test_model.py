@@ -44,7 +44,9 @@ async def test_live_complete():
     msg = await _client().complete(_ctx(), _config())
     assert msg.role is Role.ASSISTANT
     assert msg.content and msg.content.strip()
-    assert msg.token_count is not None and msg.token_count > 0
+    assert msg.usage is not None
+    assert msg.usage.prompt_tokens and msg.usage.completion_tokens and msg.usage.total_tokens
+    assert msg.usage.cost is not None  # OpenRouter reports cost in the final chunk
     assert msg.provider_id
 
 

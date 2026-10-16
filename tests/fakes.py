@@ -33,6 +33,8 @@ def chunks_of(reply: Message) -> list[MessageChunk]:
                 MessageChunk(tool_calls=(ToolCall(index=index, function_arguments=part),))
             )
     chunks.append(MessageChunk(stop_reason="tool_calls" if reply.tool_calls else "stop"))
+    if reply.usage is not None:
+        chunks.append(MessageChunk(usage=reply.usage))  # providers send usage last
     return chunks
 
 

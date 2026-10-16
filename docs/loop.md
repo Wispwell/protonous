@@ -35,7 +35,8 @@ class RunResult(BaseModel):
     stop_reason: Literal["done", "max_steps"]
 ```
 
-Both are frozen.
+Both are frozen. `step.usage` is what that step's model call consumed, and
+`result.usage` the sum over all steps (see [context](context.md#usage)).
 
 ## update
 
