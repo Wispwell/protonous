@@ -7,6 +7,7 @@ result = await run(
     max_steps=20,
     replay_all_reasoning=True,   # default
     tracer=session.tracer(),     # optional, see sessions.md
+    on_chunk=print_chunk,        # optional, see Streaming
 )
 ```
 
@@ -58,6 +59,24 @@ keeping calls and results together is natural. If a custom `update` does split t
 `check_pairing` raises `ToolPairingError` before the next model call, instead of the
 provider rejecting the request.
 
+## Streaming
+
+Every reply is streamed; there is no non-streaming path. `on_chunk` receives each
+`MessageChunk` as it arrives (content, reasoning and tool-call fragments), which is
+what a chat UI needs; leave it out and the loop just assembles the full reply. It
+is synchronous, so to hand chunks to async code, put them on a queue:
+
+```python
+queue: asyncio.Queue[MessageChunk] = asyncio.Queue()
+await run(..., on_chunk=queue.put_nowait)
+```
+
+A stream that fails partway raises `ProviderError`, whether the provider reports an
+error after streaming began, the connection drops, or the stream simply stops
+before the response finished. The half-received reply is never turned into a step,
+so traces only contain complete replies; chunks already passed to `on_chunk` were
+shown, but the run fails with the error.
+
 ## Reasoning replay
 
 `replay_all_reasoning=True` sends each assistant message's reasoning back to the
@@ -66,7 +85,8 @@ long runs. See [context](context.md#reasoning).
 
 ## Client
 
-`OpenrouterClient(get_settings())` holds the connection; `OpenrouterConfig` holds
+`OpenrouterClient(get_settings())` holds the connection: `client.stream(...)` yields
+chunks, and `client.complete(...)` collects them into one `Message`. `OpenrouterConfig` holds
 per-request generation parameters (`model`, `temperature`, `max_tokens`,
 `reasoning_effort`, `tool_choice`, `extra_body`, ...). Tools are not part of the
 config: the client receives their specs separately and only declares them; it never

@@ -1,4 +1,5 @@
 import pytest
+from fakes import ScriptedClient
 from pydantic import BaseModel
 
 from protonous.client import OpenrouterConfig
@@ -9,22 +10,6 @@ from protonous.loop import Step, append_to, check_pairing, run
 from protonous.tools import Tool
 
 CONFIG = OpenrouterConfig(model="x")
-
-
-class ScriptedClient:
-    """Returns the scripted replies in order and records what each call saw."""
-
-    def __init__(self, *replies):
-        self.replies = list(replies)
-        self.seen = []  # (message contents in the window, tool names offered)
-        self.replay_flags = []
-
-    async def complete(self, window, config, tools=None, *, replay_all_reasoning=True):
-        self.replay_flags.append(replay_all_reasoning)
-        self.seen.append(
-            ([m.content for m in window.view()], [t.name for t in tools or []])
-        )
-        return self.replies.pop(0)
 
 
 def _say(text):
@@ -212,3 +197,32 @@ async def test_run_accepts_a_toolbox():
     result = await run(client, window, CONFIG, box, update=append_to(history), max_steps=5)
     assert client.seen[0][1] == ["add"]
     assert result.steps[0].tool_results[0].content == "5"
+
+
+async def test_on_chunk_sees_every_chunk_in_order():
+    window, history = _setup()
+    reply = Message(role=Role.ASSISTANT, content="hello there", reasoning="let me think")
+    received = []
+    result = await run(
+        ScriptedClient(reply), window, CONFIG, update=append_to(history), max_steps=1,
+        on_chunk=received.append,
+    )
+    assert "".join(c.content or "" for c in received) == "hello there"
+    assert "".join(c.reasoning or "" for c in received) == "let me think"
+    assert received[-1].stop_reason == "stop"
+    assert result.steps[0].assistant.content == "hello there"
+
+
+async def test_streamed_tool_call_fragments_are_reassembled():
+    window, history = _setup()
+    client = ScriptedClient(
+        _calls(("c1", "add", '{"a": 20, "b": 22}'), ("c2", "add", '{"a": 1, "b": 1}')),
+        _say("done"),
+    )
+    result = await run(client, window, CONFIG, [ADD], update=append_to(history), max_steps=5)
+    calls = result.steps[0].assistant.tool_calls
+    assert [(c.id, c.function_arguments) for c in calls] == [
+        ("c1", '{"a": 20, "b": 22}'),
+        ("c2", '{"a": 1, "b": 1}'),
+    ]
+    assert [r.content for r in result.steps[0].tool_results] == ["42", "2"]

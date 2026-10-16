@@ -5,7 +5,6 @@ from protonous.layers import ContextWindow, SlidingWindowLayer, StaticLayer
 from protonous.normalizers import (
     normalize_chunk,
     normalize_in,
-    normalize_response,
     normalize_tools,
 )
 
@@ -84,50 +83,32 @@ def test_normalize_tools_shape():
     ]
 
 
-def _message(**kw):
-    base = {
-        "role": "assistant",
-        "content": None,
-        "tool_calls": None,
-        "reasoning": None,
-        "reasoning_details": None,
-    }
-    base.update(kw)
-    return SimpleNamespace(**base)
-
-
-def test_normalize_response_basic():
-    resp = SimpleNamespace(
-        id="gen-1",
-        choices=[SimpleNamespace(finish_reason="stop", message=_message(content="Hello"))],
-        usage=SimpleNamespace(
-            completion_tokens=5,
-            prompt_tokens=1,
-            total_tokens=6,
-            completion_tokens_details=None,
-            prompt_tokens_details=None,
-        ),
-    )
-    m = normalize_response(resp)
-    assert m.role is Role.ASSISTANT and m.content == "Hello"
-    assert m.provider_id == "gen-1" and m.token_count == 5 and m.stop_reason == "stop"
-    assert m.tool_calls == ()
-
-
-def test_normalize_response_tool_calls():
+def test_normalize_chunk_tool_call_fragment():
     tc = SimpleNamespace(
-        id="c1", type="function", index=None,
-        function=SimpleNamespace(name="f", arguments='{"a":1}'),
+        id="c1", type="function", index=0,
+        function=SimpleNamespace(name="f", arguments='{"a":'),
     )
-    resp = SimpleNamespace(
-        id="gen-2",
-        choices=[SimpleNamespace(finish_reason="tool_calls", message=_message(tool_calls=[tc]))],
-        usage=None,
+    delta = SimpleNamespace(
+        role=None, content=None, tool_calls=[tc], reasoning=None, reasoning_details=None
     )
-    m = normalize_response(resp)
-    assert len(m.tool_calls) == 1 and m.tool_calls[0].function_name == "f"
-    assert m.tool_calls[0].parsed_arguments == {"a": 1}
-    assert m.token_count is None
+    chunk = SimpleNamespace(
+        id="gen-5", usage=None, choices=[SimpleNamespace(finish_reason=None, delta=delta)]
+    )
+    c = normalize_chunk(chunk)
+    assert c.tool_calls[0].index == 0 and c.tool_calls[0].function_name == "f"
+    assert c.tool_calls[0].function_arguments == '{"a":'
+
+
+def test_normalize_chunk_reasoning_details_fragment():
+    delta = SimpleNamespace(
+        role=None, content=None, tool_calls=None, reasoning="th",
+        reasoning_details=[{"type": "reasoning.text", "index": 0, "text": "th"}],
+    )
+    chunk = SimpleNamespace(
+        id="gen-6", usage=None, choices=[SimpleNamespace(finish_reason=None, delta=delta)]
+    )
+    c = normalize_chunk(chunk)
+    assert c.reasoning == "th" and c.reasoning_details[0].text == "th"
 
 
 def test_normalize_chunk_delta():

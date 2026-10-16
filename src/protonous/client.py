@@ -1,5 +1,9 @@
 """OpenRouter client (async, via the OpenAI SDK) + per-request config.
 
+Streaming is the only transport: `stream()` yields MessageChunks, and `complete()`
+is `collect(stream())`. A stream that fails partway, or ends before the response
+finished, raises ProviderError; it never yields a silently truncated message.
+
 The client is agent-agnostic: it takes a ContextWindow (plus optional ToolSpecs, which
 it declares but never executes) and returns our Message /
 MessageChunk. All provider-shaped mapping lives in normalizers. Folding a stream is
@@ -17,7 +21,7 @@ from pydantic import BaseModel
 from .context import Message, MessageChunk, ToolSpec
 from .errors import ProviderError
 from .layers import ContextWindow
-from .normalizers import normalize_chunk, normalize_in, normalize_response, normalize_tools
+from .normalizers import normalize_chunk, normalize_in, normalize_tools
 from .settings import Settings
 
 _STD_PARAMS = (
@@ -93,6 +97,17 @@ def _provider_error(e: openai.APIError) -> ProviderError:
     return ProviderError(f"{prefix}{message}", status_code=status)
 
 
+def _raise_stream_error(raw: Any) -> None:
+    """OpenRouter reports errors after streaming has begun as an `error` field and/or
+    finish_reason "error" on a chunk, since the HTTP status (200) is already sent."""
+    error = getattr(raw, "error", None)
+    choices = getattr(raw, "choices", None) or []
+    if error is None and not any(getattr(c, "finish_reason", None) == "error" for c in choices):
+        return
+    message = error.get("message") if isinstance(error, dict) else None
+    raise ProviderError(f"stream error: {message or 'provider reported an error mid-stream'}")
+
+
 def _default_headers(settings: Settings) -> dict[str, str]:
     headers: dict[str, str] = {}
     if settings.http_referer:
@@ -118,15 +133,10 @@ class OpenrouterClient:
         *,
         replay_all_reasoning: bool = True,
     ) -> Message:
-        try:
-            response = await self._client.chat.completions.create(
-                messages=_messages(context, replay_all_reasoning),
-                stream=False,
-                **_request(config, tools),
-            )
-        except openai.APIError as e:
-            raise _provider_error(e) from None
-        return normalize_response(response)
+        """The whole response as one Message (a collected stream)."""
+        return await collect(
+            self.stream(context, config, tools, replay_all_reasoning=replay_all_reasoning)
+        )
 
     async def stream(
         self,
@@ -137,16 +147,31 @@ class OpenrouterClient:
         replay_all_reasoning: bool = True,
     ) -> AsyncIterator[MessageChunk]:
         try:
-            stream = await self._client.chat.completions.create(
+            response = await self._client.chat.completions.create(
                 messages=_messages(context, replay_all_reasoning),
                 stream=True,
                 stream_options={"include_usage": True},
                 **_request(config, tools),
             )
-            async for chunk in stream:
-                yield normalize_chunk(chunk)
         except openai.APIError as e:
             raise _provider_error(e) from None
+        raw_chunks = response.__aiter__()
+        finished = False
+        while True:
+            try:
+                raw = await anext(raw_chunks)
+            except StopAsyncIteration:
+                break
+            except openai.APIError as e:
+                raise _provider_error(e) from None
+            except Exception as e:
+                raise ProviderError(f"stream failed: {type(e).__name__}: {e}") from e
+            _raise_stream_error(raw)
+            chunk = normalize_chunk(raw)
+            finished = finished or chunk.stop_reason is not None
+            yield chunk
+        if not finished:
+            raise ProviderError("stream ended before the response finished")
 
 
 async def collect(stream: AsyncIterator[MessageChunk]) -> Message:

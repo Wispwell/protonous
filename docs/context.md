@@ -69,5 +69,5 @@ return encrypted reasoning round-trip fine but can't be read.
 
 `normalizers.py` is the only code that speaks the OpenAI/OpenRouter wire format:
 `normalize_in` (window → messages), `normalize_tools` (specs → tools),
-`normalize_response` and `normalize_chunk` (provider → our types). Everything else
+and `normalize_chunk` (a streamed provider chunk → `MessageChunk`). Everything else
 works with protonous types only.

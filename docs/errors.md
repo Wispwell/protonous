@@ -12,7 +12,7 @@ Everything protonous raises is a `ProtonousError` (`protonous.errors`):
 | `LayerError` | a message is added to a layer that refuses it | |
 | `ToolPairingError` | the window holds a tool call without its result, or the reverse | |
 | `ToolDefinitionError` | duplicate tool names; a tool returning a non-`str` | |
-| `ProviderError` | the provider returned an HTTP error, or couldn't be reached; has `status_code` | |
+| `ProviderError` | the provider returned an HTTP error, couldn't be reached, or a stream failed or ended early; has `status_code` | |
 | `SessionExistsError` | `Session.create` on an existing directory | `FileExistsError` |
 | `NotASessionError` | `Session.open` on a directory without `session.json` | `FileNotFoundError` |
 | `RunExistsError` | a run file with that name already exists | `FileExistsError` |

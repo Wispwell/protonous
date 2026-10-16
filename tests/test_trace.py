@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import pytest
+from fakes import FailingClient, ScriptedClient
 from pydantic import BaseModel
 
 from protonous.client import OpenrouterConfig
@@ -19,14 +20,6 @@ from protonous.tools import Tool
 from protonous.trace import Session, Tracer, load_session, load_trace
 
 CONFIG = OpenrouterConfig(model="x")
-
-
-class ScriptedClient:
-    def __init__(self, *replies):
-        self.replies = list(replies)
-
-    async def complete(self, window, config, tools=None, *, replay_all_reasoning=True):
-        return self.replies.pop(0)
 
 
 class AddArgs(BaseModel):
@@ -175,14 +168,6 @@ def test_load_trace_requires_run_header(tmp_path):
     path.write_text(json.dumps({"type": "end", "stop_reason": "done", "steps": 0}) + "\n")
     with pytest.raises(ValueError):
         load_trace(path)
-
-
-class FailingClient:
-    def __init__(self, exc):
-        self.exc = exc
-
-    async def complete(self, window, config, tools=None, *, replay_all_reasoning=True):
-        raise self.exc
 
 
 @pytest.mark.parametrize(

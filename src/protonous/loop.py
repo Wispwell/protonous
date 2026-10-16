@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict
 
 from .client import OpenrouterClient, OpenrouterConfig
-from .context import Message, Role
+from .context import Message, MessageChunk, Role, ToolSpec
 from .errors import ConfigurationError, ToolPairingError
 from .layers import ContextWindow, Layer
 from .tools import Tool, by_name, execute
@@ -33,6 +33,7 @@ class Step(BaseModel):
 
 
 Update = Callable[[ContextWindow, Step], ContextWindow]
+OnChunk = Callable[[MessageChunk], None]
 
 
 class RunResult(BaseModel):
@@ -88,8 +89,12 @@ async def run(
     max_steps: int,
     replay_all_reasoning: bool = True,
     tracer: Tracer | None = None,
+    on_chunk: OnChunk | None = None,
 ) -> RunResult:
     """Run until the model answers without tool calls, or `max_steps`.
+
+    Replies are streamed; `on_chunk` (e.g. a chat UI) sees every chunk as it arrives.
+    It is synchronous: to hand chunks to async code, put them on a queue.
 
     `replay_all_reasoning=False` sends reasoning back only on the latest assistant
     message instead of all of them (cheaper on long runs). Stored messages are
@@ -102,7 +107,8 @@ async def run(
     """
     try:
         return await _run(
-            client, window, config, tools, update, max_steps, replay_all_reasoning, tracer
+            client, window, config, tools, update, max_steps, replay_all_reasoning, tracer,
+            on_chunk,
         )
     except BaseException as e:
         if tracer is not None:
@@ -119,6 +125,7 @@ async def _run(
     max_steps: int,
     replay_all_reasoning: bool,
     tracer: Tracer | None,
+    on_chunk: OnChunk | None,
 ) -> RunResult:
     registry = by_name(tools)
     specs = [tool.spec for tool in tools] or None
@@ -127,9 +134,7 @@ async def _run(
     stop_reason: Literal["done", "max_steps"] = "max_steps"
     for _ in range(max_steps):
         check_pairing(window.view())
-        reply = await client.complete(
-            window, config, specs, replay_all_reasoning=replay_all_reasoning
-        )
+        reply = await _stream_reply(client, window, config, specs, replay_all_reasoning, on_chunk)
         results = tuple([await execute(registry, call) for call in reply.tool_calls])
         step = Step(assistant=reply, tool_results=results)
         steps.append(step)
@@ -143,3 +148,21 @@ async def _run(
     if tracer is not None:
         tracer.end(result)
     return result
+
+
+async def _stream_reply(
+    client: OpenrouterClient,
+    window: ContextWindow,
+    config: OpenrouterConfig,
+    specs: list[ToolSpec] | None,
+    replay_all_reasoning: bool,
+    on_chunk: OnChunk | None,
+) -> Message:
+    acc = MessageChunk()
+    async for chunk in client.stream(
+        window, config, specs, replay_all_reasoning=replay_all_reasoning
+    ):
+        if on_chunk is not None:
+            on_chunk(chunk)
+        acc = acc + chunk
+    return acc.convert()

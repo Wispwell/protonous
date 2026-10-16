@@ -2,7 +2,6 @@
 
 - normalize_in:       our ContextWindow -> the SDK `messages` list (pure flatten).
 - normalize_tools:    our ToolSpecs -> the SDK `tools` list.
-- normalize_response: a non-streaming SDK response -> our Message.
 - normalize_chunk:    one streaming SDK delta -> our MessageChunk.
 
 Reasoning round-trips: assistant messages (all of them, or only the latest — the
@@ -16,7 +15,6 @@ from collections.abc import Sequence
 from typing import Any
 
 from .context import (
-    Message,
     MessageChunk,
     ReasoningDetail,
     Role,
@@ -130,22 +128,6 @@ def _to_usage(raw: Any) -> Usage | None:
         total_tokens=getattr(raw, "total_tokens", None),
         reasoning_tokens=getattr(ctd, "reasoning_tokens", None) if ctd is not None else None,
         cached_tokens=getattr(ptd, "cached_tokens", None) if ptd is not None else None,
-    )
-
-
-def normalize_response(response: Any) -> Message:
-    choice = response.choices[0]
-    msg = choice.message
-    usage = getattr(response, "usage", None)
-    return Message(
-        role=Role(msg.role),
-        content=msg.content,
-        provider_id=getattr(response, "id", None),
-        token_count=getattr(usage, "completion_tokens", None) if usage is not None else None,
-        reasoning=getattr(msg, "reasoning", None),
-        reasoning_details=_to_reasoning_details(getattr(msg, "reasoning_details", None)),
-        stop_reason=choice.finish_reason,
-        tool_calls=_to_tool_calls(getattr(msg, "tool_calls", None)) or (),
     )
 
 
