@@ -29,6 +29,7 @@ from .errors import (
     SessionExistsError,
     StreamIncompleteError,
     ToolDefinitionError,
+    ToolError,
     ToolPairingError,
     TraceFormatError,
 )
@@ -80,6 +81,7 @@ __all__ = [
     "Tool",
     "ToolCall",
     "ToolDefinitionError",
+    "ToolError",
     "ToolPairingError",
     "ToolSpec",
     "Toolbox",

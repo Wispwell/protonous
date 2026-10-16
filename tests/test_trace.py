@@ -254,3 +254,22 @@ def test_unmodelled_reasoning_fields_survive_a_trace(tmp_path):
     tracer.step(Step(assistant=reply))
     loaded = load_trace(tmp_path / "r.jsonl").steps[0].assistant.reasoning_details[0]
     assert loaded.model_extra == {"provider_hint": 7}
+
+
+async def test_a_bug_in_a_tool_fails_the_run_and_is_recorded(tmp_path):
+    from protonous import Toolbox
+
+    box = Toolbox()
+
+    @box.tool
+    async def add(a: int, b: int) -> str:
+        """Add."""
+        raise ZeroDivisionError("oops")  # a bug, not a ToolError
+
+    window, history = _setup()
+    tracer = Session.create(tmp_path / "s", {}).tracer()
+    client = ScriptedClient(_call_reply())
+    with pytest.raises(ZeroDivisionError):
+        await agent(model_for(client), window, history, box, tracer=tracer)
+    trace = load_trace(tracer.path)
+    assert trace.error.error == "ZeroDivisionError" and trace.steps == []

@@ -12,6 +12,7 @@ Everything protonous raises is a `ProtonousError` (`protonous.errors`):
 | `LayerError` | a message is added to a layer that refuses it | |
 | `ToolPairingError` | the window holds a tool call without its result, or the reverse | |
 | `ToolDefinitionError` | duplicate tool names; a tool returning a non-`str` | |
+| `ToolError` | raised *by your tools* for a failure the model should see; becomes an `Error: ...` tool result instead of propagating | |
 | `ProviderError` | the provider returned an HTTP error, couldn't be reached, or a stream failed or ended early; has `status_code` | |
 | `SessionExistsError` | `Session.create` on an existing directory | `FileExistsError` |
 | `NotASessionError` | `Session.open` on a directory without `session.json` | `FileNotFoundError` |
@@ -35,6 +36,7 @@ exceptions.
 
 ## The one deliberate exception
 
-A tool that fails, or a model that calls a tool wrongly, is not an error of the
-program. It is information the agent should see. Those become `Error: ...` tool
-results (see [tools](tools.md#execution)) and the run continues.
+A model that calls a tool wrongly, or a tool that raises `ToolError`, is not an
+error of the program: it is information the agent should see. Those become
+`Error: ...` tool results (see [tools](tools.md#failures)) and the run continues.
+Every other exception a tool raises is a bug and propagates like any other.

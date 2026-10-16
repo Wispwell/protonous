@@ -11,15 +11,16 @@ schema, and registers the tool in that toolbox.
         \"\"\"Add two numbers.\"\"\"
         return str(a + b)
 
-    run(client, window, config, tools, ...)
+    step = await model.step(window, tools)
 
 `@tool` does the same without registering anywhere, and `Tool(...)` is the explicit
 form underneath, for an existing Pydantic args model.
 
-Model mistakes (unknown tool, malformed or invalid arguments, a tool that raises)
-become `Error: ...` tool results the model can read and react to. Programmer
-mistakes (a tool returning a non-string, duplicate tool names) raise
-ToolDefinitionError.
+What becomes an `Error: ...` tool result, for the model to read and react to:
+the model's own mistakes (an unknown tool, malformed or invalid arguments), and
+failures a tool reports on purpose by raising ToolError. Anything else a tool
+raises is a bug and propagates, as do programmer mistakes (a tool returning a
+non-string, duplicate tool names: ToolDefinitionError).
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ from typing import Any, get_type_hints, overload
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
 from .context import Message, Role, ToolCall, ToolSpec
-from .errors import ToolDefinitionError
+from .errors import ToolDefinitionError, ToolError
 
 
 class Tool(BaseModel):
@@ -199,8 +200,8 @@ async def execute(registry: Mapping[str, Tool], call: ToolCall) -> Message:
         return _error(call, f"invalid arguments: {e}")
     try:
         output = await tool.fn(args)
-    except Exception as e:  # noqa: BLE001 — the tool's failure is the model's information
-        return _error(call, f"{type(e).__name__}: {e}")
+    except ToolError as e:  # a failure the tool meant the model to see
+        return _error(call, str(e))
     if not isinstance(output, str):
         raise ToolDefinitionError(
             f"tool {tool.name!r} returned {type(output).__name__}, not str"

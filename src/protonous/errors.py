@@ -16,6 +16,12 @@ class ConfigurationError(ProtonousError, ValueError):
     an unsafe run name)."""
 
 
+class ToolError(ProtonousError):
+    """Raise inside a tool for a failure the model should see ("no such file",
+    "permission denied"): the message becomes the tool result, `Error: <message>`,
+    and the run goes on. Any other exception a tool raises is a bug, and propagates."""
+
+
 class LayerError(ProtonousError):
     """A message was added to a layer that does not accept it."""
 

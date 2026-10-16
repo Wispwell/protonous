@@ -2,7 +2,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from protonous.context import Role, ToolCall
-from protonous.errors import ToolDefinitionError
+from protonous.errors import ToolDefinitionError, ToolError
 from protonous.tools import Tool, by_name, execute
 
 
@@ -71,13 +71,33 @@ async def test_model_mistakes_become_error_results(name, args, expected):
     assert msg.extras == {"error": True} and msg.tool_call_id == "c1"
 
 
-async def test_tool_exception_becomes_error_result():
-    async def _boom(args):
-        raise RuntimeError("disk full")
+async def test_tool_error_becomes_an_error_result_with_its_message():
+    async def _full(args):
+        raise ToolError("disk full")
 
-    tool = Tool(name="add", description="", args=AddArgs, fn=_boom)
+    tool = Tool(name="add", description="", args=AddArgs, fn=_full)
     msg = await execute(by_name([tool]), _call("add", '{"a": 1, "b": 1}'))
-    assert msg.content == "Error: RuntimeError: disk full"
+    assert msg.content == "Error: disk full"
+    assert msg.extras == {"error": True} and msg.tool_call_id == "c1"
+
+
+async def test_any_other_exception_in_a_tool_is_a_bug_and_propagates():
+    async def _buggy(args):
+        return {}["missing"]  # a KeyError in the tool's own code
+
+    tool = Tool(name="add", description="", args=AddArgs, fn=_buggy)
+    with pytest.raises(KeyError):
+        await execute(by_name([tool]), _call("add", '{"a": 1, "b": 1}'))
+
+
+async def test_decorated_tools_report_tool_errors_too():
+    @tool
+    async def read_file(path: str) -> str:
+        """Read a file."""
+        raise ToolError(f"no such file: {path}")
+
+    msg = await execute(by_name([read_file]), _call("read_file", '{"path": "x.txt"}'))
+    assert msg.content == "Error: no such file: x.txt"
 
 
 async def test_tool_returning_non_string_raises():

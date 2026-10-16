@@ -95,6 +95,30 @@ Here `fn` receives the validated model instance. `tool.spec` is the
 `run_tools(tools, reply)` runs every tool call of a reply in order. `model.step`
 uses them; you rarely call them directly.
 
+## Failures
+
+A tool can fail in two very different ways, and only the tool's own code knows
+which one it is:
+
+- **A failure the agent should see** (no such file, permission denied, the API
+  returned 404): raise `ToolError` with the message the agent should read. The
+  agent gets it as the tool result and can adapt.
+- **A bug** (a `KeyError` in your code, a typo): don't catch it. Any exception
+  other than `ToolError` propagates out of `model.step`, fails the run, and is
+  recorded with its traceback by `tracer.recording()`. Bugs never reach the model
+  disguised as world failures.
+
+```python
+from protonous import ToolError
+
+@tools.tool
+async def read_file(path: str) -> str:
+    """Read a text file."""
+    if not Path(path).exists():
+        raise ToolError(f"no such file: {path}")   # the agent reads: Error: no such file: ...
+    return Path(path).read_text()                  # a bug in here fails the run, loudly
+```
+
 What the model gets back:
 
 | Situation | Tool result content |
@@ -103,11 +127,11 @@ What the model gets back:
 | unknown tool name | `Error: unknown tool 'x' (available: a, b)` |
 | arguments are not JSON | `Error: arguments are not valid JSON: ...` |
 | arguments fail validation (wrong type, missing, unknown) | `Error: invalid arguments: ...` |
-| the function raises | `Error: <ExceptionType>: <message>` |
+| the function raises `ToolError("...")` | `Error: ...` (exactly that message) |
+| the function raises anything else | nothing: the exception propagates |
 
-Error results carry `extras={"error": True}`. These are model mistakes or world
-failures, and the agent is meant to see them and react, so they are returned, not
-raised.
+Error results carry `extras={"error": True}`. The first three rows are the model's
+own mistakes, so it sees them too.
 
-Programmer mistakes raise `ToolDefinitionError` instead: duplicate tool names, or a
+Programmer mistakes raise `ToolDefinitionError`: duplicate tool names, or a
 function that returns something other than a `str`.

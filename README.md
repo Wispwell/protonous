@@ -49,8 +49,8 @@ run-0001 · done · 4 step(s)
 - **Context in layers**: static rules, a single refreshed state message, a sliding
   history that never splits a tool call from its result.
 - **Native tool calling**: decorate a typed async function to add it to an agent's
-  `Toolbox`; model mistakes come back to the model as tool results instead of
-  crashing the run.
+  `Toolbox`. The model's mistakes and failures a tool reports with `ToolError` come
+  back to it as tool results; bugs in tool code fail the run loudly instead.
 - **Streaming throughout**: every call streams; `model.stream()` is an async iterator
   for live UIs, and a stream that fails or is stopped never returns half a reply.
 - **Reasoning round-trip**: reasoning is sent back to the provider across tool turns
