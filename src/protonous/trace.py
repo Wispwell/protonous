@@ -13,7 +13,8 @@ run's failures.
         {"type": "error", "error": "ProviderError", "message": "..."}   raised in recording()
       errors.jsonl          {"run", "time", "error", "message", "traceback"} per failure
 
-Every line is appended and the file closed immediately, so a crash loses nothing.
+Every line is appended and the file closed immediately, so a crash loses nothing,
+and a SessionFollower can read runs while they are still being written.
 A run file with neither an end nor an error line was killed outright.
 """
 from __future__ import annotations
@@ -180,6 +181,76 @@ class Session:
             if (m := _AUTO_NAME.fullmatch(p.stem))
         ]
         return max(taken, default=0) + 1
+
+
+class RunStarted(BaseModel):
+    run: str
+    meta: dict[str, Any]
+
+
+class StepRecorded(BaseModel):
+    run: str
+    index: int
+    step: Step
+
+
+class RunEnded(BaseModel):
+    run: str
+    stop_reason: str
+    steps: int
+
+
+class RunFailed(BaseModel):
+    run: str
+    error: RunError
+
+
+TraceEvent = RunStarted | StepRecorded | RunEnded | RunFailed
+
+
+class SessionFollower:
+    """Reads a session's run files incrementally, for watching runs while they write.
+
+    Each `poll()` returns the events appended since the previous one, across every
+    run file (runs that started since included), in file order per run. A line
+    still being written is left for the next poll, so a half-written record is
+    never parsed.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        if not (self.path / SESSION_FILE).is_file():
+            raise NotASessionError(f"{self.path}: not a session (no {SESSION_FILE})")
+        self._offsets: dict[Path, int] = {}
+
+    def poll(self) -> list[TraceEvent]:
+        events: list[TraceEvent] = []
+        for file in sorted(p for p in self.path.glob("*.jsonl") if p.name != ERRORS_FILE):
+            offset = self._offsets.get(file, 0)
+            with file.open("rb") as f:
+                f.seek(offset)
+                data = f.read()
+            complete = data[: data.rfind(b"\n") + 1]
+            self._offsets[file] = offset + len(complete)
+            for line in complete.decode("utf-8").splitlines():
+                events.append(_event(file.stem, json.loads(line)))
+        return events
+
+
+def _event(run: str, record: dict[str, Any]) -> TraceEvent:
+    match record["type"]:
+        case "run":
+            return RunStarted(run=run, meta=record["meta"])
+        case "step":
+            return StepRecorded(run=run, index=record["index"], step=record["step"])
+        case "end":
+            return RunEnded(run=run, stop_reason=record["stop_reason"], steps=record["steps"])
+        case "error":
+            return RunFailed(
+                run=run, error=RunError(error=record["error"], message=record["message"])
+            )
+        case other:
+            raise TraceFormatError(f"{run}: unknown record type {other!r}")
 
 
 def load_trace(path: str | Path) -> Trace:

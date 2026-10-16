@@ -70,3 +70,20 @@ s.errors                       # list[ErrorRecord], with tracebacks
 
 `load_trace(path)` loads a single run file. For reading a session at a glance, see
 [cli](cli.md).
+
+## Watching runs live
+
+`SessionFollower` reads a session while its runs are still writing, for a live
+view of your own (a dashboard, a chat UI):
+
+```python
+follower = SessionFollower("sessions/exp-1")
+while True:
+    for event in follower.poll():      # only what was written since the last poll
+        ...                            # RunStarted | StepRecorded | RunEnded | RunFailed
+    await asyncio.sleep(1)
+```
+
+Each `poll()` covers every run file, runs started since the last poll included. A
+line still being written is left for the next poll, so a half-written record is
+never parsed. `protonous replay --follow` is built on it.

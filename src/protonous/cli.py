@@ -1,21 +1,37 @@
 """The `protonous` command.
 
-    protonous replay <session_id> [--root DIR] [--full]
+    protonous replay <session_id> [--root DIR] [--full] [--follow [--interval S]]
 
 `replay` prints a session as one line per run and one line per event (what the
 agent thinks, each tool call with its result, its final answer), so a session can
 be followed without reading the raw JSONL. Text is cut to one line unless --full.
+
+With --follow it keeps watching: every event so far, then each new one as runs
+write it (runs that start later included), one per line and prefixed with its run,
+until Ctrl-C. Events arrive per completed step.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
 
-from .context import Usage
+from .context import Step, Usage
 from .errors import ProtonousError
-from .trace import ERRORS_FILE, SessionTrace, Trace, load_session
+from .trace import (
+    ERRORS_FILE,
+    RunEnded,
+    RunFailed,
+    RunStarted,
+    SessionFollower,
+    SessionTrace,
+    StepRecorded,
+    Trace,
+    load_session,
+)
 
 WIDTH = 160
 
@@ -48,17 +64,62 @@ def render_run(trace: Trace, *, full: bool = False) -> list[str]:
     if trace.meta:
         lines.append(cut(f"  meta: {json.dumps(trace.meta, ensure_ascii=False)}"))
     for i, step in enumerate(trace.steps):
-        reply = step.assistant
-        if reply.reasoning and reply.reasoning.strip():
-            lines.append(cut(f"  [{i}] thinks: {reply.reasoning.strip()}"))
-        for call, result in zip(reply.tool_calls, step.tool_results, strict=False):
-            mark = "✗" if result.extras.get("error") else "→"
-            lines.append(
-                cut(f"  [{i}] {call.function_name}({call.function_arguments}) {mark} {result.content}")
-            )
-        if reply.content and reply.content.strip():
-            lines.append(cut(f"  [{i}] says: {reply.content.strip()}"))
+        lines.extend(cut(f"  {line}") for line in render_step(i, step))
     return lines
+
+
+def render_step(index: int, step: Step) -> list[str]:
+    """One step's events: what the agent thinks, each tool call with its result
+    (`→`, or `✗` for an error result), and what it says. Not cut."""
+    reply = step.assistant
+    lines = []
+    if reply.reasoning and reply.reasoning.strip():
+        lines.append(f"[{index}] thinks: {reply.reasoning.strip()}")
+    for call, result in zip(reply.tool_calls, step.tool_results, strict=False):
+        mark = "✗" if result.extras.get("error") else "→"
+        lines.append(f"[{index}] {call.function_name}({call.function_arguments}) {mark} {result.content}")
+    if reply.content and reply.content.strip():
+        lines.append(f"[{index}] says: {reply.content.strip()}")
+    return lines
+
+
+def follow(
+    path: Path,
+    *,
+    full: bool = False,
+    interval: float = 1.0,
+    polls: int | None = None,
+    out: Callable[[str], None] = print,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Print a session's events as they are written, until interrupted (or after
+    `polls` polls, for tests)."""
+    follower = SessionFollower(path)
+    steps: dict[str, int] = {}
+    usage: dict[str, Usage] = {}
+
+    def done(run: str) -> str:
+        return f"{steps.get(run, 0)} step(s){_usage_text(usage.get(run, Usage()))}"
+
+    count = 0
+    while polls is None or count < polls:
+        for event in follower.poll():
+            match event:
+                case RunStarted(run=run, meta=meta):
+                    meta_text = f" · meta {json.dumps(meta, ensure_ascii=False)}" if meta else ""
+                    out(_cut(f"{run} · started{meta_text}", full))
+                case StepRecorded(run=run, index=index, step=step):
+                    steps[run] = steps.get(run, 0) + 1
+                    usage[run] = usage.get(run, Usage()) + step.usage
+                    for line in render_step(index, step):
+                        out(_cut(f"{run} {line}", full))
+                case RunEnded(run=run, stop_reason=stop_reason):
+                    out(_cut(f"{run} · {stop_reason} · {done(run)}", full))
+                case RunFailed(run=run, error=error):
+                    out(_cut(f"{run} · ERROR {error.error}: {error.message} · {done(run)}", full))
+        count += 1
+        if polls is None or count < polls:
+            sleep(interval)
 
 
 def _usage_text(usage: Usage) -> str:
@@ -90,9 +151,25 @@ def main(argv: list[str] | None = None) -> int:
     replay.add_argument("session_id", help="session directory name under --root")
     replay.add_argument("--root", default="sessions", help="sessions directory (default: sessions)")
     replay.add_argument("--full", action="store_true", help="don't cut long text")
+    replay.add_argument(
+        "-f", "--follow", action="store_true", help="keep watching for new events until Ctrl-C"
+    )
+    replay.add_argument(
+        "--interval", type=float, default=1.0, help="seconds between checks with --follow"
+    )
     args = parser.parse_args(argv)
 
     path = Path(args.root) / args.session_id
+    if args.follow:
+        try:
+            print(f"following {path} (Ctrl-C to stop)")
+            follow(path, full=args.full, interval=args.interval)
+        except ProtonousError as e:
+            print(f"protonous: {e}", file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            pass
+        return 0
     try:
         session = load_session(path)
     except FileNotFoundError:
