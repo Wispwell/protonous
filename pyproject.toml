@@ -1,6 +1,6 @@
 [project]
 name = "protonous"
-version = "0.0.1"
+dynamic = ["version"]
 description = "A lightweight agent framework over OpenRouter: typed context, one provider layer, one loop."
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -26,6 +26,9 @@ protonous = "protonous.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/protonous/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/protonous"]
